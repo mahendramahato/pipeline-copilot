@@ -1,7 +1,7 @@
 [project]
 name = "pipeline-copilot"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI on-call assistant that diagnoses data pipeline failures"
 authors = [
     { email = "mahendramahato33@gmail.com" }
 ]
