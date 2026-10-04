@@ -6,7 +6,12 @@ authors = [
     { email = "mahendramahato33@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "httpx>=0.28.1",
+    "langchain-anthropic>=1.7.5",
+    "langgraph>=1.2.12",
+    "python-dotenv>=1.2.4",
+]
 
 [project.scripts]
 pipeline-copilot = "pipeline_copilot:main"
