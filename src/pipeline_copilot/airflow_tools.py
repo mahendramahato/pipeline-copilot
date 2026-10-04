@@ -56,9 +56,18 @@ def _trim_log(records: list[dict]) -> str:
     return "\n".join(parts)
 
 
-# --- HTTP errors become text the agent can react to ---
-def _http_error(e: httpx.HTTPStatusError) -> str:
-    return f"Error {e.response.status_code} from Airflow: {e.response.text[:300]}"
+# --- Airflow errors become text the agent can react to ---
+# HTTPStatusError: Airflow answered with an error (404 unknown DAG, 403...).
+# RequestError: Airflow couldn't be reached at all (tunnel down, timeout).
+# Either way Claude gets a readable message instead of the turn crashing,
+# so it can explain the problem or try something else.
+def _airflow_error(e: httpx.HTTPError) -> str:
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"Error {e.response.status_code} from Airflow: {e.response.text[:300]}"
+    return (
+        f"Cannot reach Airflow ({type(e).__name__}). The SSH tunnel to the VM "
+        "may be down, or Airflow may not be running."
+    )
 
 
 # --- Tool factory ---
@@ -75,8 +84,9 @@ def make_airflow_tools(client: AirflowClient) -> list[BaseTool]:
         """
         try:
             dags = client.list_dags()
-        except httpx.HTTPStatusError as e:
-            return _http_error(e)
+        except httpx.HTTPError as e:
+            return _airflow_error(e)
+
         return "\n".join(f"{d['dag_id']} (paused={d['is_paused']})" for d in dags) or "No DAGs found."
 
     @tool(parse_docstring=True)
@@ -92,8 +102,9 @@ def make_airflow_tools(client: AirflowClient) -> list[BaseTool]:
         """
         try:
             runs = client.get_dag_runs(dag_id, limit=max(1, min(limit, 25)))
-        except httpx.HTTPStatusError as e:
-            return _http_error(e)
+        except httpx.HTTPError as e:
+            return _airflow_error(e)
+
         if not runs:
             return f"No runs found for {dag_id}."
         return "\n".join(
@@ -114,8 +125,9 @@ def make_airflow_tools(client: AirflowClient) -> list[BaseTool]:
         """
         try:
             tasks = client.get_task_instances(dag_id, run_id)
-        except httpx.HTTPStatusError as e:
-            return _http_error(e)
+        except httpx.HTTPError as e:
+            return _airflow_error(e)
+
         return "\n".join(
             f"task_id={t['task_id']} | state={t['state']} | try_number={t['try_number']} | "
             f"duration_s={t.get('duration')}"
@@ -136,8 +148,9 @@ def make_airflow_tools(client: AirflowClient) -> list[BaseTool]:
         """
         try:
             log = client.get_task_log(dag_id, run_id, task_id, max(1, try_number))
-        except httpx.HTTPStatusError as e:
-            return _http_error(e)
+        except httpx.HTTPError as e:
+            return _airflow_error(e)
+
         return _trim_log(log.get("content", []))
 
     return [list_dags, get_recent_dag_runs, get_task_instances, get_task_log]
