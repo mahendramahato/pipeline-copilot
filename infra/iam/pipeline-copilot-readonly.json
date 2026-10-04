@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AthenaOnlyInOwnWorkgroup",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults",
+        "athena:StopQueryExecution",
+        "athena:GetWorkGroup"
+      ],
+      "Resource": "arn:aws:athena:us-west-2:011713309527:workgroup/pipeline-copilot"
+    },
+    {
+      "Sid": "GlueCatalogReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:GetTableVersions",
+        "glue:GetPartition",
+        "glue:GetPartitions"
+      ],
+      "Resource": [
+        "arn:aws:glue:us-west-2:011713309527:catalog",
+        "arn:aws:glue:us-west-2:011713309527:database/weather_seismic",
+        "arn:aws:glue:us-west-2:011713309527:table/weather_seismic/*"
+      ]
+    },
+    {
+      "Sid": "LakeListBucket",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+      "Resource": "arn:aws:s3:::weather-seismic-lake-mahendra"
+    },
+    {
+      "Sid": "LakeReadObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::weather-seismic-lake-mahendra/*"
+    },
+    {
+      "Sid": "WriteOnlyOwnQueryResults",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::weather-seismic-lake-mahendra/athena-results/pipeline-copilot/*"
+    }
+  ]
+}
