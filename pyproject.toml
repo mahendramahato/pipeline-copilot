@@ -7,12 +7,14 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.43.108",
     "httpx>=0.28.1",
     "langchain-anthropic>=1.7.5",
     "langchain-mcp-adapters>=0.3.2",
     "langgraph>=1.2.12",
     "mcp[cli]>=1.30.0",
     "python-dotenv>=1.2.4",
+    "sqlglot>=30.21.0",
 ]
 
 [project.scripts]
@@ -21,3 +23,8 @@ pipeline-copilot = "pipeline_copilot.cli:main"
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
