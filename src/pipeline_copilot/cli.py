@@ -10,6 +10,9 @@ from langgraph.errors import GraphRecursionError
 from pipeline_copilot.config import load_agent_settings
 from pipeline_copilot.graph import build_graph
 
+from contextlib import AsyncExitStack
+
+
 MAX_STEPS = 20
 
 # --- Which MCP servers to start, and how ---
@@ -23,7 +26,13 @@ MCP_SERVERS = {
         "command": sys.executable,
         "args": ["-m", "pipeline_copilot.mcp_servers.airflow_server"],
     },
+    "athena": {
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": ["-m", "pipeline_copilot.mcp_servers.athena_server"],
+    },
 }
+
 
 
 def _show(msg: BaseMessage) -> None:
@@ -41,11 +50,14 @@ async def chat() -> None:
     settings = load_agent_settings()
     client = MultiServerMCPClient(MCP_SERVERS)
 
-    # --- One persistent MCP session for the whole chat ---
-    # The server process starts here and stops when this block exits,
-    # instead of a new process (and a new Airflow login) per tool call.
-    async with client.session("airflow") as session:
-        tools = await load_mcp_tools(session)
+    # --- One persistent session per server ---
+    # AsyncExitStack holds any number of `async with` blocks open at once
+    # and closes them all (stopping each server process) when the chat ends.
+    async with AsyncExitStack() as stack:
+        tools = []
+        for name in MCP_SERVERS:
+            session = await stack.enter_async_context(client.session(name))
+            tools += await load_mcp_tools(session)
         graph = build_graph(settings, tools)
 
         print(f"Pipeline Copilot ({settings.llm_model})")
