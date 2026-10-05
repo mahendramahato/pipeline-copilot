@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "airflow": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/Users/mahendra/Documents/AI/pipeline-copilot",
+        "run",
+        "python",
+        "-m",
+        "pipeline_copilot.mcp_servers.airflow_server"
+      ],
+      "env": {}
+    }
+  }
+}
