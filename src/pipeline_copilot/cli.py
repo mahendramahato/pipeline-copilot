@@ -87,7 +87,9 @@ async def chat() -> None:
                     stream_mode="updates",
                 ):
                     for change in update.values():
-                        for msg in change["messages"]:
+                        # A node that changed nothing (e.g. the guardrail
+                        # allowing a question) reports None instead of a dict.
+                        for msg in (change or {}).get("messages", []):
                             history.append(msg)
                             _show(msg)
             except GraphRecursionError:
