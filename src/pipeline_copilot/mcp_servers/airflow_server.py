@@ -23,11 +23,14 @@ from pipeline_copilot.config import load_airflow_settings
 # httpx logs every request at INFO level; quiet it the same way
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+MAX_LINE_CHARS = 300      # a single log line longer than this gets cut
+MAX_LOG_CHARS = 8000      # hard cap on what one log returns (~2k tokens)
 
 # --- Log trimming ---
 TAIL_LINES = 60
 MAX_IMPORTANT_LINES = 30
 IMPORTANT_LEVELS = {"warning", "error", "critical"}
+
 
 
 def _format_log(records: list[dict]) -> tuple[list[str], list[str]]:
@@ -38,7 +41,7 @@ def _format_log(records: list[dict]) -> tuple[list[str], list[str]]:
             continue
         ts = str(rec.get("timestamp", ""))[11:19]
         level = str(rec.get("level", "")).lower()
-        line = f"{ts} {level.upper():8} {event}".strip()
+        line = f"{ts} {level.upper():8} {event}".strip()[:MAX_LINE_CHARS]
         if rec.get("error_detail"):
             for err in rec["error_detail"]:
                 if isinstance(err, dict):
@@ -61,7 +64,13 @@ def _trim_log(records: list[dict]) -> str:
     if earlier_important:
         parts += ["--- warnings/errors earlier in the log ---", *earlier_important]
     parts += [f"--- last {TAIL_LINES} lines ---", *tail]
-    return "\n".join(parts)
+    text = "\n".join(parts)
+    # Lines are capped individually, but many long lines can still add up.
+    # Keep the END: that's where errors and the final status usually are.
+    if len(text) > MAX_LOG_CHARS:
+        text = "(log cut to its last part)\n" + text[-MAX_LOG_CHARS:]
+    return text
+
 
 
 def _airflow_error(e: httpx.HTTPError) -> str:

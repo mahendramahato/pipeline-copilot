@@ -8,3 +8,5 @@ raw partitions stop at 09-30 -> job reads 0 rows -> writes nothing -> succeeds.
 | Date | Version | Detected? | Impact correct? | Root cause | Notes |
 |------|---------|-----------|-----------------|------------|-------|
 | 2026-10-05 | Phase 3 (no RAG) | yes | yes | no: blamed output path; "wrong raw input" was 1 of 3 guesses | checked projection on curated tables only |
+
+called get_registered_partitions on curated only, never on raw.
