@@ -7,7 +7,7 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from pipeline_copilot.config import Settings
+from pipeline_copilot.config import AgentSettings
 
 # --- System prompt ---
 # Kept stable (no timestamps or per-request values), so the API can cache
@@ -40,7 +40,7 @@ def get_current_time() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def build_graph(settings: Settings, tools: list[BaseTool]):
+def build_graph(settings: AgentSettings, tools: list[BaseTool]):
     all_tools = [*tools, get_current_time]
 
     # --- The model ---
@@ -51,11 +51,10 @@ def build_graph(settings: Settings, tools: list[BaseTool]):
     llm_with_tools = llm.bind_tools(all_tools)
 
     # --- Node 1: agent ---
-    # Reads all messages so far, asks Claude for the next step. Returning
-    # {"messages": [response]} APPENDS (MessagesState's reducer), so history
-    # is never overwritten.
-    def agent(state: MessagesState) -> dict:
-        response = llm_with_tools.invoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])
+    # async because the graph now runs with astream(): MCP tools are
+    # async-only, and an async graph needs async nodes to await Claude.
+    async def agent(state: MessagesState) -> dict:
+        response = await llm_with_tools.ainvoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])
         return {"messages": [response]}
 
     # --- Wiring ---

@@ -21,28 +21,30 @@ def _require(name: str) -> str:
     return value
 
 
-# --- The settings object ---
-# frozen=True: settings can't be changed by accident while the agent runs.
-# repr=False on the password: print(settings) or a traceback will show
-# every field EXCEPT the password, so it never leaks into logs.
+# --- Agent settings: only what the agent process itself needs ---
 @dataclass(frozen=True)
-class Settings:
+class AgentSettings:
     llm_model: str
-    airflow_base_url: str
-    airflow_username: str
-    airflow_password: str = field(repr=False)
 
 
-def load_settings() -> Settings:
-    # ANTHROPIC_API_KEY isn't stored on Settings: the Anthropic SDK reads it
-    # from the environment by itself. We only check it exists, so a missing
-    # key fails here rather than on the first question you ask the agent.
+# --- Airflow settings: only the Airflow MCP server loads these ---
+# repr=False keeps the password out of prints and tracebacks.
+@dataclass(frozen=True)
+class AirflowSettings:
+    base_url: str
+    username: str
+    password: str = field(repr=False)
+
+
+def load_agent_settings() -> AgentSettings:
+    # The SDK reads ANTHROPIC_API_KEY itself; we only check it exists.
     _require("ANTHROPIC_API_KEY")
+    return AgentSettings(llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"))
 
-    return Settings(
-        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
-        # rstrip("/") so joining paths later never produces "//api/v2"
-        airflow_base_url=_require("AIRFLOW_BASE_URL").rstrip("/"),
-        airflow_username=_require("AIRFLOW_USERNAME"),
-        airflow_password=_require("AIRFLOW_PASSWORD"),
+
+def load_airflow_settings() -> AirflowSettings:
+    return AirflowSettings(
+        base_url=_require("AIRFLOW_BASE_URL").rstrip("/"),
+        username=_require("AIRFLOW_USERNAME"),
+        password=_require("AIRFLOW_PASSWORD"),
     )

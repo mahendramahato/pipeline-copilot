@@ -10,14 +10,23 @@ from functools import cache
 from typing import Annotated
 
 import httpx
+import logging
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from pipeline_copilot.airflow_client import AirflowClient
-from pipeline_copilot.config import load_settings
+from pipeline_copilot.config import load_airflow_settings
 
-# --- Log trimming (moved from airflow_tools.py) ---
+# WARNING: only show problems, not every request. The logs still go to
+# stderr, so they never interfere with the protocol on stdout.
+mcp = FastMCP("airflow", log_level="WARNING")
+
+# httpx logs every request at INFO level; quiet it the same way
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+# --- Log trimming ---
 TAIL_LINES = 60
 MAX_IMPORTANT_LINES = 30
 IMPORTANT_LEVELS = {"warning", "error", "critical"}
@@ -80,7 +89,7 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 # importing this module (tests, listing tools) doesn't need credentials.
 @cache
 def _client() -> AirflowClient:
-    return AirflowClient(load_settings())
+    return AirflowClient(load_airflow_settings())
 
 
 # --- Tools ---

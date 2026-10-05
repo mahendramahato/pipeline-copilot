@@ -3,7 +3,7 @@ from urllib.parse import quote
 
 import httpx
 
-from pipeline_copilot.config import Settings
+from pipeline_copilot.config import AirflowSettings
 
 
 # --- URL-safe path pieces ---
@@ -19,11 +19,11 @@ class AirflowClient:
     so even a bug in the agent can't ask this class to change Airflow.
     (The agent_viewer role blocks writes too: two independent layers.)"""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: AirflowSettings):
         self._settings = settings
         # One reusable connection pool. base_url means we only write paths
         # like "/api/v2/dags". timeout stops a hung tunnel from hanging the agent.
-        self._http = httpx.Client(base_url=settings.airflow_base_url, timeout=30.0)
+        self._http = httpx.Client(base_url=settings.base_url, timeout=30.0)
         self._token: str | None = None
 
     # --- Authentication ---
@@ -33,8 +33,8 @@ class AirflowClient:
         resp = self._http.post(
             "/auth/token",
             json={
-                "username": self._settings.airflow_username,
-                "password": self._settings.airflow_password,
+                "username": self._settings.username,
+                "password": self._settings.password,
             },
         )
         resp.raise_for_status()
