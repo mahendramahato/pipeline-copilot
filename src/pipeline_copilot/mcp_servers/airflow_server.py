@@ -6,11 +6,12 @@ An MCP client starts this as a subprocess and talks to it over stdio:
 IMPORTANT: never print() here. stdout carries the MCP protocol messages,
 so a stray print corrupts them. Use logging (FastMCP sends it to stderr).
 """
+
+import logging
 from functools import cache
 from typing import Annotated
 
 import httpx
-import logging
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -18,9 +19,6 @@ from pydantic import Field
 from pipeline_copilot.airflow_client import AirflowClient
 from pipeline_copilot.config import load_airflow_settings
 
-# WARNING: only show problems, not every request. The logs still go to
-# stderr, so they never interfere with the protocol on stdout.
-mcp = FastMCP("airflow", log_level="WARNING")
 
 # httpx logs every request at INFO level; quiet it the same way
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -77,7 +75,10 @@ def _airflow_error(e: httpx.HTTPError) -> str:
 
 # --- The server ---
 # The name "airflow" is what MCP clients show for this server.
-mcp = FastMCP("airflow")
+# log_level="WARNING": only report problems, not every request. Logs go to
+# stderr, so they never interfere with the protocol on stdout.
+mcp = FastMCP("airflow", log_level="WARNING")
+
 
 # Every tool here only reads. Clients may use this hint (e.g. to skip
 # approval prompts); the real enforcement is still the Viewer role.
