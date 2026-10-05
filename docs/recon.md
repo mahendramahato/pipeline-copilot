@@ -84,3 +84,7 @@ airflow, airflow-postgres, api, web
 - Fix options later: (a) Glue job reads the S3 path directly instead of the catalog,
   (b) register partitions after sync_to_s3, (c) add a DAG task that fails if
   curated row count for the day is 0, so this class of bug can't be silent again.
+
+- Airflow task logs are not on a volume: recreating the container (e.g. any
+  `docker compose up -d` after a config change) deletes all previous task logs.
+  Fix later: mount a volume for /opt/airflow/logs.
