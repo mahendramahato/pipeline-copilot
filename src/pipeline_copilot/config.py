@@ -48,3 +48,22 @@ def load_airflow_settings() -> AirflowSettings:
         username=_require("AIRFLOW_USERNAME"),
         password=_require("AIRFLOW_PASSWORD"),
     )
+
+
+# --- Athena settings: only the Athena MCP server loads these ---
+# No secrets here: AWS keys stay in ~/.aws/credentials, selected by profile.
+@dataclass(frozen=True)
+class AthenaSettings:
+    aws_profile: str
+    aws_region: str
+    workgroup: str
+    database: str
+
+
+def load_athena_settings() -> AthenaSettings:
+    return AthenaSettings(
+        aws_profile=_require("AWS_PROFILE"),
+        aws_region=_require("AWS_REGION"),
+        workgroup=_require("ATHENA_WORKGROUP"),
+        database=_require("ATHENA_DATABASE"),
+    )
