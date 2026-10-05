@@ -89,11 +89,15 @@ def get_table_schema(
         return _aws_error(e)
     cols = "\n".join(f"  {name} {typ}" for name, typ in _columns(t).items())
     parts = [p["Name"] for p in t.get("PartitionKeys", [])]
+    # Table properties that control how partitions are found (projection.*).
+    projection = {k: v for k, v in t.get("Parameters", {}).items() if k.startswith("projection.")}
     return (
         f"{table} (type={t.get('TableType')}, updated={t.get('UpdateTime')})\n"
         f"columns:\n{cols}\n"
-        f"partition keys: {parts or 'none'}"
+        f"partition keys: {parts or 'none'}\n"
+        f"partition projection: {projection or 'not enabled'}"
     )
+
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -131,6 +135,25 @@ def get_table_versions(
             f"vs v{older['VersionId']}: {change}"
         )
     return "\n".join(lines)
+
+@mcp.tool(annotations=READ_ONLY)
+def get_registered_partitions(
+    table: Annotated[str, Field(description="Table name from list_tables.")],
+) -> str:
+    """List the partitions registered in the Glue Data Catalog for a table.
+
+    Free (Glue catalog). Shows the partition values the catalog itself knows
+    about, which is what readers that go through the catalog will see.
+    """
+    try:
+        partitions = _client().get_partitions(table)
+    except (ClientError, BotoCoreError) as e:
+        return _aws_error(e)
+    values = sorted("/".join(p["Values"]) for p in partitions)
+    if not values:
+        return f"{table}: no partitions registered in the catalog."
+    shown = ", ".join(values) if len(values) <= 31 else f"{', '.join(values[:5])} ... {', '.join(values[-5:])}"
+    return f"{table}: {len(values)} registered partitions ({values[0]} to {values[-1]})\n{shown}"
 
 
 @mcp.tool(annotations=READ_ONLY)

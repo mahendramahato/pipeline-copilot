@@ -94,4 +94,13 @@ class AthenaClient:
             DatabaseName=self._settings.database, TableName=name, MaxResults=limit
         )
         return resp["TableVersions"]
+    
+    def get_partitions(self, name: str) -> list[dict]:
+        # Partitions REGISTERED in the catalog. With partition projection,
+        # Athena doesn't need these, but catalog-based readers might.
+        pages = self._glue.get_paginator("get_partitions").paginate(
+            DatabaseName=self._settings.database, TableName=name
+        )
+        return [p for page in pages for p in page["Partitions"]]
+
 
