@@ -73,3 +73,14 @@ airflow, airflow-postgres, api, web
 | Glue job failed | curate_day task log (partial). TODO: add glue:GetJobRuns |
 | Bad / missing data | Athena row counts, nulls, freshness ✅ |
 | Why a container crashed | ❌ Needs container logs → future work (Docker MCP) |
+
+
+## Known issues (found 2026-10-05, deliberately NOT fixed yet)
+- curated_* tables stop at 2026-09-30, although every DAG run since is green.
+  Cause: raw tables use partition projection (Athena only); the Glue job reads
+  via the Glue catalog, whose partitions stop at 09-30 (crawler not re-run).
+  The job reads 0 rows per day and "succeeds".
+- Kept unfixed as a real test case: can the agent find it on its own (Phase 3, Step 5)?
+- Fix options later: (a) Glue job reads the S3 path directly instead of the catalog,
+  (b) register partitions after sync_to_s3, (c) add a DAG task that fails if
+  curated row count for the day is 0, so this class of bug can't be silent again.
