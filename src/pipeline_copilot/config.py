@@ -67,3 +67,18 @@ def load_athena_settings() -> AthenaSettings:
         workgroup=_require("ATHENA_WORKGROUP"),
         database=_require("ATHENA_DATABASE"),
     )
+
+# --- Guardrail model ---
+@dataclass(frozen=True)
+class AgentSettings:
+    llm_model: str
+    guardrail_model: str
+
+
+def load_agent_settings() -> AgentSettings:
+    _require("ANTHROPIC_API_KEY")
+    return AgentSettings(
+        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
+        # Small, fast model for classification: ~100x cheaper per question than the agent
+        guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
+    )

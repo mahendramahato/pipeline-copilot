@@ -2,12 +2,14 @@
 from datetime import datetime, timezone
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, AIMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from pipeline_copilot.config import AgentSettings
+from pipeline_copilot.guardrails import make_input_guardrail
+
 
 # --- System prompt ---
 # Kept stable (no timestamps or per-request values), so the API can cache
@@ -72,10 +74,25 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool]):
         response = await llm_with_tools.ainvoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])
         return {"messages": [response]}
 
+        # --- Route after the guardrail ---
+    # The guardrail adds an AIMessage only when it refuses. So if the last
+    # message is from the AI, we're done; if it's still the user's question, go on.
+    def after_guardrail(state: MessagesState) -> str:
+        return END if isinstance(state["messages"][-1], AIMessage) else "agent"
+
     # --- Wiring ---
     graph = StateGraph(MessagesState)
+    graph.add_node("input_guardrail", make_input_guardrail(settings.guardrail_model))
     graph.add_node("agent", agent)
-    graph.add_node("tools", ToolNode(all_tools))   # runs whatever tools Claude asked for
+    graph.add_node("tools", ToolNode(all_tools))
+
+    graph.add_edge(START, "input_guardrail")
+    graph.add_conditional_edges("input_guardrail", after_guardrail, ["agent", END])
+    graph.add_conditional_edges("agent", tools_condition)
+    graph.add_edge("tools", "agent")
+
+    return graph.compile()
+
 
     graph.add_edge(START, "agent")
     # tools_condition: tool calls in the last message → "tools", else → END
