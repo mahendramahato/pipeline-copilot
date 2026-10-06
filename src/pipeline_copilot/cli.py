@@ -31,6 +31,12 @@ MCP_SERVERS = {
         "command": sys.executable,
         "args": ["-m", "pipeline_copilot.mcp_servers.athena_server"],
     },
+    "knowledge": {
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": ["-m", "pipeline_copilot.mcp_servers.knowledge_server"],
+    },
+
 }
 
 

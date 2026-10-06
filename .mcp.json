@@ -12,6 +12,19 @@
         "pipeline_copilot.mcp_servers.airflow_server"
       ],
       "env": {}
+    },
+    "knowledge": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "--directory",
+        ".",
+        "run",
+        "python",
+        "-m",
+        "pipeline_copilot.mcp_servers.knowledge_server"
+      ],
+      "env": {}
     }
   }
 }
