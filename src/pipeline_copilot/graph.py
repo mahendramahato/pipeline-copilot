@@ -14,7 +14,7 @@ from pipeline_copilot.guardrails import make_input_guardrail
 from pipeline_copilot.models import Diagnosis
 
 from pipeline_copilot.output_guardrail import check_grounding
-
+from langchain_core.runnables import RunnableConfig
 
 # --- System prompt ---
 SYSTEM_PROMPT = """You are Pipeline Copilot, an on-call assistant for a weather and seismic data pipeline.
@@ -38,6 +38,9 @@ How to work:
 - Compare across layers (Airflow state vs raw data vs curated data); problems hide in the gaps.
 - Cite evidence for every claim (run_id, task_id, query result) and the runbook source you used.
 - If a tool returns an error, adjust and retry. All times are UTC. Be concise.
+
+- For incidents, call search_past_incidents early: has this happened before? A match is a lead, not proof.
+
 """
 
 
@@ -77,10 +80,21 @@ def _turn_tool_outputs(messages: list) -> list[tuple[str, str]]:
     start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
     return [(m.name, m.text) for m in messages[start:] if isinstance(m, ToolMessage)]
 
+# Tools only the graph may call. The model never sees them, so it can't write
+# to memory on its own; saving is a deterministic step after verification.
+GRAPH_ONLY_TOOLS = {"record_incident"}
+
+
+# MCP tool results can come back as plain text or a list of content blocks
+def _as_text(result) -> str:
+    if isinstance(result, str):
+        return result
+    return " ".join(b.get("text", "") for b in result if isinstance(b, dict)) or str(result)
 
 
 def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=None):
-    all_tools = [*tools, get_current_time]
+    all_tools = [t for t in tools if t.name not in GRAPH_ONLY_TOOLS] + [get_current_time]
+    recorder = next((t for t in tools if t.name == "record_incident"), None)
 
     # --- The model ---
     # bind_tools sends the tool schemas (from your docstrings) with every
@@ -116,6 +130,24 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
     def verify_diagnosis(state: AgentState) -> dict:
         return {"diagnosis": check_grounding(state["diagnosis"], _turn_tool_outputs(state["messages"]))}
 
+    
+    # --- Node: remember (incident memory) ---
+    # Saves VERIFIED diagnoses only: memory should hold conclusions, not guesses.
+    # config gives access to the thread_id, so a past incident links to its conversation.
+    async def remember(state: AgentState, config: RunnableConfig) -> dict:
+        d = state["diagnosis"]
+        if recorder is None:
+            note = "not saved: incident memory unavailable"
+        elif d["confidence"] == "low" or d["category"] in ("no_problem_found", "unknown"):
+            note = f"not saved (confidence={d['confidence']}, category={d['category']})"
+        else:
+            question = next(m.text for m in reversed(state["messages"]) if isinstance(m, HumanMessage))
+            note = _as_text(await recorder.ainvoke({
+                "diagnosis_json": json.dumps(d),
+                "question": question,
+                "thread_id": config["configurable"]["thread_id"],
+            }))
+        return {"diagnosis": {**d, "memory": note}}
 
     # --- Route after the agent ---
     # Replaces tools_condition: tool calls → tools; otherwise incidents get
@@ -138,13 +170,15 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
     graph.add_node("tools", ToolNode(all_tools))
     graph.add_node("diagnose", diagnose)
     graph.add_node("verify_diagnosis", verify_diagnosis)
+    graph.add_node("remember", remember)
 
     graph.add_edge(START, "input_guardrail")
     graph.add_conditional_edges("input_guardrail", after_guardrail, ["agent", END])
     graph.add_conditional_edges("agent", after_agent, ["tools", "diagnose", END])
     graph.add_edge("tools", "agent")
     graph.add_edge("diagnose", "verify_diagnosis")
-    graph.add_edge("verify_diagnosis", END)
+    graph.add_edge("verify_diagnosis", "remember")
+    graph.add_edge("remember", END)
 
     # The checkpointer saves state after every node, keyed by thread_id
     return graph.compile(checkpointer=checkpointer)

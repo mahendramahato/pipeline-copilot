@@ -91,6 +91,8 @@ def _show_diagnosis(d: dict) -> None:
         print(f"  │ runbooks: {', '.join(d['runbooks_used'])}")
     for u in d["unverified"]:
         print(f"  │ unverified: {u}")
+    if d.get("memory"):
+        print(f"  │ memory: {d['memory']}")
     print("  └" + "─" * 62 + "\n")
 
 
@@ -142,9 +144,9 @@ async def chat(thread_id: str) -> None:
                     for node, change in update.items():
                         for msg in (change or {}).get("messages", []):
                             _show(msg)
-                        # print only the VERIFIED diagnosis (diagnose's raw one comes first)
-                        if node == "verify_diagnosis" and (change or {}).get("diagnosis"):
+                        if node == "remember" and (change or {}).get("diagnosis"):
                             _show_diagnosis(change["diagnosis"])
+
             except GraphRecursionError:
                 print(f"  ✗ Stopped after {MAX_STEPS} steps without an answer. Try a narrower question.\n")
                 await _repair_dangling_tool_calls(graph, config)

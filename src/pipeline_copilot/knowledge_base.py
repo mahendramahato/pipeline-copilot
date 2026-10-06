@@ -4,7 +4,9 @@ Build or rebuild the index (run after editing anything in knowledge/):
     uv run python -m pipeline_copilot.knowledge_base
 """
 import re
+import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 import chromadb
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
@@ -88,3 +90,51 @@ if __name__ == "__main__":
     print(f"Indexed {len(chunks)} chunks from {s.knowledge_dir} into {s.chroma_path}")
     for c in chunks:
         print("  ", c["id"])
+        
+# --- Incident memory ---
+# A separate collection from the runbooks: build_index rebuilds "knowledge" only,
+# so re-ingesting docs never wipes incident history.
+INCIDENTS = "incidents"
+
+
+def _incidents(settings: KnowledgeSettings):
+    return _client(settings).get_or_create_collection(INCIDENTS, embedding_function=DefaultEmbeddingFunction())
+
+
+def record_incident(diagnosis: dict, question: str, thread_id: str, settings: KnowledgeSettings) -> str:
+    # One record per (UTC day, category): re-diagnosing the same incident today
+    # UPDATES it (upsert) instead of piling up copies.
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    incident_id = f"{day}:{diagnosis['category']}"
+    _incidents(settings).upsert(
+        ids=[incident_id],
+        # What gets embedded: what a future "has this happened before?" search should match
+        documents=[f"{diagnosis['category']}: {diagnosis['summary']}\nRoot cause: {diagnosis['root_cause']}"],
+        # Chroma metadata values must be scalars (str/int/float/bool), so lists are joined
+        metadatas=[{
+            "date": day,
+            "category": diagnosis["category"],
+            "confidence": diagnosis["confidence"],
+            "thread_id": thread_id,
+            "question": question,
+            "fix": diagnosis["suggested_fix"],
+            "runbooks": ", ".join(diagnosis["runbooks_used"]),
+        }],
+    )
+    return incident_id
+
+
+def search_incidents(query: str, k: int, settings: KnowledgeSettings) -> list[dict]:
+    collection = _incidents(settings)
+    count = collection.count()
+    if count == 0:
+        return []
+    # n_results can't exceed the number of stored items
+    res = collection.query(query_texts=[query], n_results=min(k, count))
+    return [
+        {"id": iid, "text": doc, "distance": dist, **meta}
+        for iid, doc, dist, meta in zip(
+            res["ids"][0], res["documents"][0], res["distances"][0], res["metadatas"][0]
+        )
+    ]
+
