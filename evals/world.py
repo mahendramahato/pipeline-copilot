@@ -47,7 +47,7 @@ class World:
     now: datetime
     dag_runs: list[dict] = field(default_factory=list)                    # newest first
     task_instances: dict[str, list[dict]] = field(default_factory=dict)   # run_id -> tasks
-    task_logs: dict[tuple[str, str], str] = field(default_factory=dict)   # (run_id, task_id) -> log text
+    task_logs: dict[tuple, str] = field(default_factory=dict)   # (run_id, task_id[, try_number]) -> log text
     tables: dict[str, list[dict]] = field(default_factory=dict)           # table -> rows (each has "date")
     registered_partitions: dict[str, list[str]] = field(default_factory=dict)
     table_versions: dict[str, list[dict]] = field(default_factory=dict)   # table -> [{version, updated, columns}]
@@ -61,6 +61,11 @@ class World:
         self.tables["curated_weather"] = _latest(raw_w, ("station_id", "observed_at"), "ingested_at")
         self.tables["curated_seismic"] = _latest(raw_s, ("event_id",), "updated_at")
         self.tables["curated_weather_daily"] = _daily(self.tables["curated_weather"])
+
+    # Find one task instance in a run (scenarios edit its state, try_number, duration)
+    def task(self, run_id: str, task_id: str) -> dict:
+        return next(t for t in self.task_instances[run_id] if t["task_id"] == task_id)
+
 
 
 # --- Small helpers ---

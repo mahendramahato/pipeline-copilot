@@ -26,6 +26,10 @@ def score(s: Scenario, final_state: dict) -> dict:
 
     d = final_state.get("diagnosis")
     if d is None:
+        if s.expected_category == "no_problem_found":
+            # Healthy system, answered without raising an incident: that's the right outcome
+            return {**base, "correct": True, "grounded": True, "confidently_wrong": False,
+                    "category_got": "(no incident)", "confidence": "-"}
         # Routed as a plain question (or refused): a real failure a user would hit
         return {**base, "correct": False, "failure": "no diagnosis: not routed as an incident"}
 

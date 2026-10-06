@@ -86,7 +86,10 @@ def _impls(world: World) -> dict:
         )
 
     def get_task_log(dag_id, run_id, task_id, try_number):
-        log = world.task_logs.get((run_id, task_id)) if dag_id == DAG_ID else None
+        if dag_id != DAG_ID:
+            return not_found(f"The Dag with ID: `{dag_id}`")
+        # A scenario can give each attempt its own log; otherwise use the task's default log
+        log = world.task_logs.get((run_id, task_id, try_number), world.task_logs.get((run_id, task_id)))
         return log if log is not None else not_found(f"Task log for {task_id} in {run_id}")
 
     def list_tables():
