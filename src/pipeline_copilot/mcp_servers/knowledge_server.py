@@ -65,7 +65,7 @@ def search_past_incidents(
     if not results:
         return "No past incidents recorded yet."
     return "\n\n---\n\n".join(
-        f"[incident {r['id']} | confidence={r['confidence']} | conversation={r['thread_id']}]\n"
+        f"[incident {r['id']} | confidence={r['confidence']} | seen {r.get('times_seen', 1)}x | conversation={r['thread_id']}]\n"
         f"{r['text']}\nFix suggested: {r['fix']}\nOriginal question: {r['question']}"
         for r in results
     )
@@ -82,8 +82,7 @@ def record_incident(
     Called by the agent's graph after the output guardrail, not by the model.
     """
     incident_id = kb.record_incident(json.loads(diagnosis_json), question, thread_id, load_knowledge_settings())
-    return f"saved as incident {incident_id}"
-
+    return f"incident memory: {incident_id}"
 
 
 if __name__ == "__main__":

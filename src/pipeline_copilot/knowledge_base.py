@@ -102,11 +102,23 @@ def _incidents(settings: KnowledgeSettings):
 
 
 def record_incident(diagnosis: dict, question: str, thread_id: str, settings: KnowledgeSettings) -> str:
-    # One record per (UTC day, category): re-diagnosing the same incident today
-    # UPDATES it (upsert) instead of piling up copies.
+    # One record per (UTC day, category). The FIRST diagnosis of the day is kept,
+    # because it's the discovery, with the full evidence. Later re-diagnoses only
+    # bump times_seen, so follow-ups ("still broken?") can't overwrite the original.
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     incident_id = f"{day}:{diagnosis['category']}"
-    _incidents(settings).upsert(
+    collection = _incidents(settings)
+
+    existing = collection.get(ids=[incident_id])
+    if existing["ids"]:
+        meta = existing["metadatas"][0]
+        collection.update(
+            ids=[incident_id],
+            metadatas=[{**meta, "times_seen": meta.get("times_seen", 1) + 1, "last_thread_id": thread_id}],
+        )
+        return f"{incident_id} (already recorded; seen {meta.get('times_seen', 1) + 1} times)"
+
+    collection.add(
         ids=[incident_id],
         # What gets embedded: what a future "has this happened before?" search should match
         documents=[f"{diagnosis['category']}: {diagnosis['summary']}\nRoot cause: {diagnosis['root_cause']}"],
@@ -119,9 +131,11 @@ def record_incident(diagnosis: dict, question: str, thread_id: str, settings: Kn
             "question": question,
             "fix": diagnosis["suggested_fix"],
             "runbooks": ", ".join(diagnosis["runbooks_used"]),
+            "times_seen": 1,
         }],
     )
     return incident_id
+
 
 
 def search_incidents(query: str, k: int, settings: KnowledgeSettings) -> list[dict]:
