@@ -43,9 +43,12 @@ def chunk_markdown(path: Path) -> list[dict]:
 
 
 def _client(settings: KnowledgeSettings) -> chromadb.ClientAPI:
-    # PersistentClient stores everything in a folder on disk (.chroma/)
-    return chromadb.PersistentClient(path=str(settings.chroma_path))
-
+    # PersistentClient stores everything in a folder on disk (.chroma/).
+    # Telemetry off: the knowledge base stays fully local, no surprise network calls.
+    return chromadb.PersistentClient(
+        path=str(settings.chroma_path),
+        settings=chromadb.config.Settings(anonymized_telemetry=False),
+    )
 
 # --- Ingestion: rebuild the collection from scratch ---
 # Deleting first means removed or renamed sections can't linger as stale chunks.
