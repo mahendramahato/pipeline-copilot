@@ -73,6 +73,22 @@ async def _repair_dangling_tool_calls(graph, config: dict) -> None:
         # as_node="tools": record the update as if the tools node produced it
         await graph.aupdate_state(config, {"messages": cancelled}, as_node="tools")
 
+def _show_diagnosis(d: dict) -> None:
+    print("  ┌─ DIAGNOSIS " + "─" * 50)
+    print(f"  │ {d['summary']}")
+    print(f"  │ category={d['category']}  confidence={d['confidence']}")
+    print(f"  │ root cause: {d['root_cause']}")
+    for e in d["evidence"]:
+        print(f"  │ evidence [{e['tool']}]: \"{e['quote']}\"  → {e['meaning']}")
+    print(f"  │ impact: {d['impact']}")
+    print(f"  │ fix: {d['suggested_fix']}")
+    if d["runbooks_used"]:
+        print(f"  │ runbooks: {', '.join(d['runbooks_used'])}")
+    for u in d["unverified"]:
+        print(f"  │ unverified: {u}")
+    print("  └" + "─" * 62 + "\n")
+
+
 async def chat(thread_id: str) -> None:
     settings = load_agent_settings()
     client = MultiServerMCPClient(MCP_SERVERS)
@@ -121,6 +137,8 @@ async def chat(thread_id: str) -> None:
                     for change in update.values():
                         for msg in (change or {}).get("messages", []):
                             _show(msg)
+                        if (change or {}).get("diagnosis"):
+                            _show_diagnosis(change["diagnosis"])
             except GraphRecursionError:
                 print(f"  ✗ Stopped after {MAX_STEPS} steps without an answer. Try a narrower question.\n")
                 await _repair_dangling_tool_calls(graph, config)

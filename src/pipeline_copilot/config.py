@@ -11,6 +11,11 @@ from dotenv import load_dotenv
 # the file:   LLM_MODEL=claude-sonnet-5-5 uv run ...
 load_dotenv()
 
+# --- Project root ---
+# Paths are resolved from here, so they work no matter which folder a process
+# (e.g. an MCP server subprocess) was started from.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]    # src/pipeline_copilot/config.py → project root
+
 
 # --- Required settings fail loudly at startup ---
 # A missing value raises here, with the variable's name, instead of turning
@@ -26,6 +31,20 @@ def _require(name: str) -> str:
 @dataclass(frozen=True)
 class AgentSettings:
     llm_model: str
+    guardrail_model: str
+    memory_db: Path
+
+
+def load_agent_settings() -> AgentSettings:
+    # The SDK reads ANTHROPIC_API_KEY itself; we only check it exists.
+    _require("ANTHROPIC_API_KEY")
+    return AgentSettings(
+        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
+        # Small, fast model for classification: ~100x cheaper per question than the agent
+        guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
+        # Conversation checkpoints. Relative to the project root, like .chroma/
+        memory_db=PROJECT_ROOT / os.environ.get("MEMORY_DB", "memory.sqlite"),
+    )
 
 
 # --- Airflow settings: only the Airflow MCP server loads these ---
@@ -35,12 +54,6 @@ class AirflowSettings:
     base_url: str
     username: str
     password: str = field(repr=False)
-
-
-def load_agent_settings() -> AgentSettings:
-    # The SDK reads ANTHROPIC_API_KEY itself; we only check it exists.
-    _require("ANTHROPIC_API_KEY")
-    return AgentSettings(llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"))
 
 
 def load_airflow_settings() -> AirflowSettings:
@@ -69,27 +82,8 @@ def load_athena_settings() -> AthenaSettings:
         database=_require("ATHENA_DATABASE"),
     )
 
-# --- Guardrail model ---
-@dataclass(frozen=True)
-class AgentSettings:
-    llm_model: str
-    guardrail_model: str
-
-
-def load_agent_settings() -> AgentSettings:
-    _require("ANTHROPIC_API_KEY")
-    return AgentSettings(
-        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
-        # Small, fast model for classification: ~100x cheaper per question than the agent
-        guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
-    )
 
 # --- Knowledge base (RAG) settings ---
-# Paths are resolved from the project root, so they work no matter which
-# folder a process (e.g. an MCP server subprocess) was started from.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]    # src/pipeline_copilot/config.py → project root
-
-
 @dataclass(frozen=True)
 class KnowledgeSettings:
     knowledge_dir: Path
@@ -100,21 +94,4 @@ def load_knowledge_settings() -> KnowledgeSettings:
     return KnowledgeSettings(
         knowledge_dir=PROJECT_ROOT / "knowledge",
         chroma_path=PROJECT_ROOT / os.environ.get("CHROMA_PATH", ".chroma"),
-    )
-
-# --- memory ---
-@dataclass(frozen=True)
-class AgentSettings:
-    llm_model: str
-    guardrail_model: str
-    memory_db: Path
-
-
-def load_agent_settings() -> AgentSettings:
-    _require("ANTHROPIC_API_KEY")
-    return AgentSettings(
-        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
-        guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
-        # Conversation checkpoints. Relative to the project root, like .chroma/
-        memory_db=PROJECT_ROOT / os.environ.get("MEMORY_DB", "memory.sqlite"),
     )

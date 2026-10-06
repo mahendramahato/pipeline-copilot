@@ -1,20 +1,20 @@
 """The agent: Claude + tools wired into a LangGraph loop."""
+import json
 from datetime import datetime, timezone
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
-from langgraph.graph import END, START, MessagesState, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode
 
 from pipeline_copilot.config import AgentSettings
+from pipeline_copilot.graph_state import AgentState
 from pipeline_copilot.guardrails import make_input_guardrail
+from pipeline_copilot.models import Diagnosis
 
 
 # --- System prompt ---
-# Kept stable (no timestamps or per-request values), so the API can cache
-# it across calls. Facts about the pipeline live here for now; in Phase 4
-# they move into RAG documents the agent searches.
 SYSTEM_PROMPT = """You are Pipeline Copilot, an on-call assistant for a weather and seismic data pipeline.
 
 You investigate with read-only tools: Airflow (DAG runs, task logs), Athena (the data lake)
@@ -45,6 +45,31 @@ def get_current_time() -> str:
     """Get the current date and time in UTC."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+DIAGNOSIS_PROMPT = """You turn a finished on-call investigation into a structured diagnosis.
+Use ONLY what is in the transcript. Every evidence quote must be copied exactly,
+character for character, from a TOOL RESULT. If the investigation found no problem,
+say so (category no_problem_found). List anything that could not be verified."""
+
+
+# --- This turn's messages as plain text ---
+# Plain text instead of the raw messages: the raw ones carry Opus thinking
+# blocks tied to the original conversation, which shouldn't be replayed in a
+# different request. Text is also cheaper.
+def _turn_transcript(messages: list) -> str:
+    start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
+    lines = []
+    for m in messages[start:]:
+        if isinstance(m, HumanMessage):
+            lines.append(f"USER QUESTION: {m.text}")
+        elif isinstance(m, AIMessage) and m.tool_calls:
+            for call in m.tool_calls:
+                lines.append(f"TOOL CALL {call['name']} {json.dumps(call['args'])}")
+        elif isinstance(m, ToolMessage):
+            lines.append(f"TOOL RESULT [{m.name}]:\n{m.text}")
+        elif isinstance(m, AIMessage):
+            lines.append(f"AGENT'S FINAL ANSWER:\n{m.text}")
+    return "\n\n".join(lines)
+
 
 def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=None):
     all_tools = [*tools, get_current_time]
@@ -59,33 +84,52 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
     # --- Node 1: agent ---
     # async because the graph now runs with astream(): MCP tools are
     # async-only, and an async graph needs async nodes to await Claude.
-    async def agent(state: MessagesState) -> dict:
+    async def agent(state: AgentState) -> dict:
         response = await llm_with_tools.ainvoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])
         return {"messages": [response]}
+    
+        # --- Node: diagnose (incidents only) ---
+    # One focused call that extracts a typed Diagnosis from the investigation.
+    # method="json_schema": the API constrains the output to the schema directly
+    # (Opus 5.5 can't be forced to call a tool, which other methods rely on).
+    diagnoser = ChatAnthropic(model=settings.llm_model, max_tokens=16000).with_structured_output(
+        Diagnosis, method="json_schema"
+    )
 
-        # --- Route after the guardrail ---
+    async def diagnose(state: AgentState) -> dict:
+        diagnosis = await diagnoser.ainvoke([
+            SystemMessage(DIAGNOSIS_PROMPT),
+            HumanMessage(_turn_transcript(state["messages"])),
+        ])
+        return {"diagnosis": diagnosis.model_dump()}
+
+    # --- Route after the agent ---
+    # Replaces tools_condition: tool calls → tools; otherwise incidents get
+    # diagnosed and plain questions are done.
+    def after_agent(state: AgentState) -> str:
+        if state["messages"][-1].tool_calls:
+            return "tools"
+        return "diagnose" if state.get("intent") == "incident" else END
+
+    # --- Route after the guardrail ---
     # The guardrail adds an AIMessage only when it refuses. So if the last
     # message is from the AI, we're done; if it's still the user's question, go on.
-    def after_guardrail(state: MessagesState) -> str:
+    def after_guardrail(state: AgentState) -> str:
         return END if isinstance(state["messages"][-1], AIMessage) else "agent"
 
     # --- Wiring ---
-    graph = StateGraph(MessagesState)
+    graph = StateGraph(AgentState)
     graph.add_node("input_guardrail", make_input_guardrail(settings.guardrail_model))
     graph.add_node("agent", agent)
     graph.add_node("tools", ToolNode(all_tools))
+    graph.add_node("diagnose", diagnose)
 
     graph.add_edge(START, "input_guardrail")
     graph.add_conditional_edges("input_guardrail", after_guardrail, ["agent", END])
-    graph.add_conditional_edges("agent", tools_condition)
+    graph.add_conditional_edges("agent", after_agent, ["tools", "diagnose", END])
     graph.add_edge("tools", "agent")
+    graph.add_edge("diagnose", END)
+
     # The checkpointer saves state after every node, keyed by thread_id
     return graph.compile(checkpointer=checkpointer)
 
-
-    graph.add_edge(START, "agent")
-    # tools_condition: tool calls in the last message → "tools", else → END
-    graph.add_conditional_edges("agent", tools_condition)
-    graph.add_edge("tools", "agent")               # results go back to Claude: the loop
-    # The checkpointer saves state after every node, keyed by thread_id
-    return graph.compile()
