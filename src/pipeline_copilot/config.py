@@ -1,6 +1,7 @@
 """Settings for pipeline-copilot, loaded once from .env."""
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -81,4 +82,22 @@ def load_agent_settings() -> AgentSettings:
         llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
         # Small, fast model for classification: ~100x cheaper per question than the agent
         guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
+    )
+
+# --- Knowledge base (RAG) settings ---
+# Paths are resolved from the project root, so they work no matter which
+# folder a process (e.g. an MCP server subprocess) was started from.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]    # src/pipeline_copilot/config.py → project root
+
+
+@dataclass(frozen=True)
+class KnowledgeSettings:
+    knowledge_dir: Path
+    chroma_path: Path
+
+
+def load_knowledge_settings() -> KnowledgeSettings:
+    return KnowledgeSettings(
+        knowledge_dir=PROJECT_ROOT / "knowledge",
+        chroma_path=PROJECT_ROOT / os.environ.get("CHROMA_PATH", ".chroma"),
     )

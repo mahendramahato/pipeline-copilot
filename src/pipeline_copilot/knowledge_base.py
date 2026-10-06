@@ -1,0 +1,87 @@
+"""Knowledge base for RAG: chunk markdown docs, store in Chroma, search.
+
+Build or rebuild the index (run after editing anything in knowledge/):
+    uv run python -m pipeline_copilot.knowledge_base
+"""
+import re
+from pathlib import Path
+
+import chromadb
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+
+from pipeline_copilot.config import KnowledgeSettings, load_knowledge_settings
+
+COLLECTION = "knowledge"
+
+
+# --- Chunking: one chunk per "## " section ---
+# Each chunk's text starts with "<doc title> > <section heading>" (a contextual
+# header), so a section like "How to check" still says WHAT it's about. That
+# header is part of the embedded text, so it improves retrieval too.
+def chunk_markdown(path: Path) -> list[dict]:
+    text = path.read_text(encoding="utf-8")
+    title_match = re.search(r"^# (.+)$", text, flags=re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else path.stem
+
+    chunks = []
+    # split at lines starting with "## "; part 0 is everything before the first section
+    for part in re.split(r"^## ", text, flags=re.MULTILINE)[1:]:
+        heading, _, body = part.partition("\n")
+        heading, body = heading.strip(), body.strip()
+        slug = re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")
+        chunks.append({
+            "id": f"{path.stem}#{slug}",
+            "text": f"{title} > {heading}\n\n{body}",
+            "metadata": {
+                "source": path.name,
+                "title": title,
+                "section": heading,
+                "type": "runbook" if path.stem.startswith("runbook_") else "reference",
+            },
+        })
+    return chunks
+
+
+def _client(settings: KnowledgeSettings) -> chromadb.ClientAPI:
+    # PersistentClient stores everything in a folder on disk (.chroma/)
+    return chromadb.PersistentClient(path=str(settings.chroma_path))
+
+
+# --- Ingestion: rebuild the collection from scratch ---
+# Deleting first means removed or renamed sections can't linger as stale chunks.
+def build_index(settings: KnowledgeSettings) -> list[dict]:
+    chunks = [c for path in sorted(settings.knowledge_dir.glob("*.md")) for c in chunk_markdown(path)]
+    client = _client(settings)
+    try:
+        client.delete_collection(COLLECTION)
+    except Exception:
+        pass   # first run: nothing to delete
+    collection = client.create_collection(COLLECTION, embedding_function=DefaultEmbeddingFunction())
+    # Chroma embeds each document with the embedding function as it stores it
+    collection.add(
+        ids=[c["id"] for c in chunks],
+        documents=[c["text"] for c in chunks],
+        metadatas=[c["metadata"] for c in chunks],
+    )
+    return chunks
+
+
+# --- Retrieval: the k nearest chunks to a query ---
+# distance: lower = closer in meaning. Only the ranking matters, not the value.
+def search(query: str, k: int, settings: KnowledgeSettings) -> list[dict]:
+    collection = _client(settings).get_collection(COLLECTION, embedding_function=DefaultEmbeddingFunction())
+    res = collection.query(query_texts=[query], n_results=k)
+    return [
+        {"id": cid, "text": doc, "distance": dist, **meta}
+        for cid, doc, dist, meta in zip(
+            res["ids"][0], res["documents"][0], res["distances"][0], res["metadatas"][0]
+        )
+    ]
+
+
+if __name__ == "__main__":
+    s = load_knowledge_settings()
+    chunks = build_index(s)
+    print(f"Indexed {len(chunks)} chunks from {s.knowledge_dir} into {s.chroma_path}")
+    for c in chunks:
+        print("  ", c["id"])
