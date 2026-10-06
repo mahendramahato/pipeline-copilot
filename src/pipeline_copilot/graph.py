@@ -13,6 +13,8 @@ from pipeline_copilot.graph_state import AgentState
 from pipeline_copilot.guardrails import make_input_guardrail
 from pipeline_copilot.models import Diagnosis
 
+from pipeline_copilot.output_guardrail import check_grounding
+
 
 # --- System prompt ---
 SYSTEM_PROMPT = """You are Pipeline Copilot, an on-call assistant for a weather and seismic data pipeline.
@@ -70,6 +72,12 @@ def _turn_transcript(messages: list) -> str:
             lines.append(f"AGENT'S FINAL ANSWER:\n{m.text}")
     return "\n\n".join(lines)
 
+# --- (tool_name, output) for every tool result in this turn ---
+def _turn_tool_outputs(messages: list) -> list[tuple[str, str]]:
+    start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
+    return [(m.name, m.text) for m in messages[start:] if isinstance(m, ToolMessage)]
+
+
 
 def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=None):
     all_tools = [*tools, get_current_time]
@@ -102,6 +110,12 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
             HumanMessage(_turn_transcript(state["messages"])),
         ])
         return {"diagnosis": diagnosis.model_dump()}
+    
+    # --- Node: verify_diagnosis (output guardrail, deterministic) ---
+    # Checks every evidence quote against the real tool outputs of this turn.
+    def verify_diagnosis(state: AgentState) -> dict:
+        return {"diagnosis": check_grounding(state["diagnosis"], _turn_tool_outputs(state["messages"]))}
+
 
     # --- Route after the agent ---
     # Replaces tools_condition: tool calls → tools; otherwise incidents get
@@ -123,12 +137,14 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
     graph.add_node("agent", agent)
     graph.add_node("tools", ToolNode(all_tools))
     graph.add_node("diagnose", diagnose)
+    graph.add_node("verify_diagnosis", verify_diagnosis)
 
     graph.add_edge(START, "input_guardrail")
     graph.add_conditional_edges("input_guardrail", after_guardrail, ["agent", END])
     graph.add_conditional_edges("agent", after_agent, ["tools", "diagnose", END])
     graph.add_edge("tools", "agent")
-    graph.add_edge("diagnose", END)
+    graph.add_edge("diagnose", "verify_diagnosis")
+    graph.add_edge("verify_diagnosis", END)
 
     # The checkpointer saves state after every node, keyed by thread_id
     return graph.compile(checkpointer=checkpointer)

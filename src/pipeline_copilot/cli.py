@@ -79,7 +79,12 @@ def _show_diagnosis(d: dict) -> None:
     print(f"  │ category={d['category']}  confidence={d['confidence']}")
     print(f"  │ root cause: {d['root_cause']}")
     for e in d["evidence"]:
-        print(f"  │ evidence [{e['tool']}]: \"{e['quote']}\"  → {e['meaning']}")
+        mark = "✓" if e.get("grounded") else "✗ UNGROUNDED"
+        print(f"  │ {mark} [{e['tool']}]: \"{e['quote']}\"  → {e['meaning']}")
+    g = d.get("grounding", {})
+    lowered = f" (lowered from {g['confidence_lowered_from']})" if g.get("confidence_lowered_from") else ""
+    print(f"  │ grounding: {g.get('checked', 0) - g.get('ungrounded', 0)}/{g.get('checked', 0)} quotes verified{lowered}")
+
     print(f"  │ impact: {d['impact']}")
     print(f"  │ fix: {d['suggested_fix']}")
     if d["runbooks_used"]:
@@ -134,10 +139,11 @@ async def chat(thread_id: str) -> None:
                 async for update in graph.astream(
                     {"messages": [HumanMessage(question)]}, config=config, stream_mode="updates"
                 ):
-                    for change in update.values():
+                    for node, change in update.items():
                         for msg in (change or {}).get("messages", []):
                             _show(msg)
-                        if (change or {}).get("diagnosis"):
+                        # print only the VERIFIED diagnosis (diagnose's raw one comes first)
+                        if node == "verify_diagnosis" and (change or {}).get("diagnosis"):
                             _show_diagnosis(change["diagnosis"])
             except GraphRecursionError:
                 print(f"  ✗ Stopped after {MAX_STEPS} steps without an answer. Try a narrower question.\n")
