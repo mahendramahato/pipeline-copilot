@@ -1,6 +1,8 @@
 # Runbook: check_freshness failed (stale streaming lake)
 
 ## Symptoms
+- A streaming job stopped, crashed or died (weather-stream or seismic-stream),
+  or no new data is arriving / data stopped flowing.
 - daily_lake_maintenance fails at check_freshness.
 - Log says: "<dataset> lake is stale (N h) - is its streaming job running?"
 - sync_to_s3 and curate_day do not run (upstream failed), so raw and curated stop updating.
