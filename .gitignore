@@ -16,3 +16,5 @@ __pycache__/
 .vscode/
 
 *.sqlite-*
+
+evals/results/*.json
