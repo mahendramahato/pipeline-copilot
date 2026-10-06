@@ -28,5 +28,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "duckdb>=1.5.6",
     "pytest>=9.1.1",
 ]
