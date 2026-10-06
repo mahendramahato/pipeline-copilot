@@ -4,6 +4,7 @@
 
 Never print() here: stdout carries the MCP protocol.
 """
+from datetime import datetime, timezone
 from functools import cache
 from typing import Annotated
 
@@ -44,6 +45,44 @@ def _aws_error(e: Exception) -> str:
 def _columns(table: dict) -> dict[str, str]:
     return {c["Name"]: c["Type"] for c in table.get("StorageDescriptor", {}).get("Columns", [])}
 
+# Glue returns timestamps in the machine's local time zone; report everything in UTC
+def _utc(value) -> str:
+    return value.astimezone(timezone.utc).isoformat() if isinstance(value, datetime) else str(value)
+
+
+# --- Pure formatters, shared with the eval harness (so fake tools print identically) ---
+def _format_schema(table: str, t: dict) -> str:
+    cols = "\n".join(f"  {name} {typ}" for name, typ in _columns(t).items())
+    parts = [p["Name"] for p in t.get("PartitionKeys", [])]
+    projection = {k: v for k, v in t.get("Parameters", {}).items() if k.startswith("projection.")}
+    return (
+        f"{table} (type={t.get('TableType')}, updated={_utc(t.get('UpdateTime'))})\n"
+        f"columns:\n{cols}\n"
+        f"partition keys: {parts or 'none'}\n"
+        f"partition projection: {projection or 'not enabled'}"
+    )
+
+
+def _format_versions(table: str, versions: list[dict]) -> str:
+    versions = sorted(versions, key=lambda v: int(v["VersionId"]), reverse=True)   # newest first
+    if len(versions) < 2:
+        return f"{table} has only {len(versions)} version(s); nothing to compare."
+    lines = []
+    for newer, older in zip(versions, versions[1:]):
+        new_cols, old_cols = _columns(newer["Table"]), _columns(older["Table"])
+        added = sorted(new_cols.keys() - old_cols.keys())
+        removed = sorted(old_cols.keys() - new_cols.keys())
+        retyped = sorted(c for c in new_cols.keys() & old_cols.keys() if new_cols[c] != old_cols[c])
+        change = ", ".join(filter(None, [
+            f"added {added}" if added else "",
+            f"removed {removed}" if removed else "",
+            f"type changed {retyped}" if retyped else "",
+        ])) or "no column changes"
+        lines.append(
+            f"v{newer['VersionId']} (updated {_utc(newer['Table'].get('UpdateTime'))}) "
+            f"vs v{older['VersionId']}: {change}"
+        )
+    return "\n".join(lines)
 
 # --- Query results as a compact pipe-separated table ---
 # NULL is spelled out: NULL rates are how this pipeline shows schema drift,
@@ -97,6 +136,8 @@ def get_table_schema(
         f"partition keys: {parts or 'none'}\n"
         f"partition projection: {projection or 'not enabled'}"
     )
+    
+    return _format_result(table, t)
 
 
 
@@ -118,7 +159,8 @@ def get_table_versions(
     versions.sort(key=lambda v: int(v["VersionId"]), reverse=True)   # newest first
     if len(versions) < 2:
         return f"{table} has only {len(versions)} version(s); nothing to compare."
-
+    return _format_versions(table, versions)
+    
     lines = []
     for newer, older in zip(versions, versions[1:]):
         new_cols, old_cols = _columns(newer["Table"]), _columns(older["Table"])

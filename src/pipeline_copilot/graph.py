@@ -93,7 +93,12 @@ def _as_text(result) -> str:
 
 
 def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=None):
-    all_tools = [t for t in tools if t.name not in GRAPH_ONLY_TOOLS] + [get_current_time]
+    # get_current_time is added only if the caller didn't supply one: evals pass a
+    # fake clock so "yesterday" means the same thing on every run.
+    all_tools = [t for t in tools if t.name not in GRAPH_ONLY_TOOLS]
+    if not any(t.name == "get_current_time" for t in all_tools):
+        all_tools.append(get_current_time)
+
     recorder = next((t for t in tools if t.name == "record_incident"), None)
 
     # --- The model ---
