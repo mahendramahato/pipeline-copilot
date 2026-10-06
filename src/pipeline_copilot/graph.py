@@ -46,7 +46,7 @@ def get_current_time() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def build_graph(settings: AgentSettings, tools: list[BaseTool]):
+def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=None):
     all_tools = [*tools, get_current_time]
 
     # --- The model ---
@@ -79,13 +79,13 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool]):
     graph.add_conditional_edges("input_guardrail", after_guardrail, ["agent", END])
     graph.add_conditional_edges("agent", tools_condition)
     graph.add_edge("tools", "agent")
-
-    return graph.compile()
+    # The checkpointer saves state after every node, keyed by thread_id
+    return graph.compile(checkpointer=checkpointer)
 
 
     graph.add_edge(START, "agent")
     # tools_condition: tool calls in the last message → "tools", else → END
     graph.add_conditional_edges("agent", tools_condition)
     graph.add_edge("tools", "agent")               # results go back to Claude: the loop
-
+    # The checkpointer saves state after every node, keyed by thread_id
     return graph.compile()

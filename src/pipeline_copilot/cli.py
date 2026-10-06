@@ -1,17 +1,19 @@
 """Terminal chat for Pipeline Copilot. Tools come from MCP servers."""
 import asyncio
 import sys
+import argparse
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.errors import GraphRecursionError
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from pipeline_copilot.config import load_agent_settings
 from pipeline_copilot.graph import build_graph
 
 from contextlib import AsyncExitStack
-
+from datetime import datetime, timezone
 
 MAX_STEPS = 20
 
@@ -51,8 +53,27 @@ def _show(msg: BaseMessage) -> None:
     elif isinstance(msg, AIMessage):
         print(f"\n{msg.text}\n")
 
+# --- Repair a turn that died halfway ---
+# State is saved after every node, so a crash between "Claude asked for a tool"
+# and "the tool answered" leaves a dangling tool call in the saved thread, and
+# the API rejects that history on the next question. We don't delete anything
+# (history is append-only): we append a "cancelled" result for each dangling call.
+async def _repair_dangling_tool_calls(graph, config: dict) -> None:
+    state = await graph.aget_state(config)
+    messages = state.values.get("messages", [])
+    if messages and isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
+        cancelled = [
+            ToolMessage(
+                content="Cancelled: this turn was aborted before the tool ran.",
+                tool_call_id=call["id"],
+                name=call["name"],
+            )
+            for call in messages[-1].tool_calls
+        ]
+        # as_node="tools": record the update as if the tools node produced it
+        await graph.aupdate_state(config, {"messages": cancelled}, as_node="tools")
 
-async def chat() -> None:
+async def chat(thread_id: str) -> None:
     settings = load_agent_settings()
     client = MultiServerMCPClient(MCP_SERVERS)
 
@@ -64,13 +85,21 @@ async def chat() -> None:
         for name in MCP_SERVERS:
             session = await stack.enter_async_context(client.session(name))
             tools += await load_mcp_tools(session)
-        graph = build_graph(settings, tools)
+        
+        # open the sqlite checkpointer for as long as the chat runs
+        checkpointer = await stack.enter_async_context(
+            AsyncSqliteSaver.from_conn_string(str(settings.memory_db))
+        )  
+        graph = build_graph(settings, tools, checkpointer)
 
+        # every call names the conversation it belongs to
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": MAX_STEPS}
+        
         print(f"Pipeline Copilot ({settings.llm_model})")
         print(f"Tools from MCP: {', '.join(t.name for t in tools)}")
+        print(f"Conversation: {thread_id}  (resume with: uv run pipeline-copilot --thread {thread_id})")
         print("Ask about your pipeline. 'exit' to quit.\n")
 
-        history: list[BaseMessage] = []
         while True:
             # input() blocks; running it in a thread keeps the event loop
             # (and the MCP connection) alive while you type.
@@ -84,32 +113,30 @@ async def chat() -> None:
             if not question:
                 continue
 
-            turn_start = len(history)
-            history.append(HumanMessage(question))
             try:
+                # send only the new message; the checkpointer supplies the rest
                 async for update in graph.astream(
-                    {"messages": history},
-                    config={"recursion_limit": MAX_STEPS},
-                    stream_mode="updates",
+                    {"messages": [HumanMessage(question)]}, config=config, stream_mode="updates"
                 ):
                     for change in update.values():
-                        # A node that changed nothing (e.g. the guardrail
-                        # allowing a question) reports None instead of a dict.
                         for msg in (change or {}).get("messages", []):
-                            history.append(msg)
                             _show(msg)
             except GraphRecursionError:
                 print(f"  ✗ Stopped after {MAX_STEPS} steps without an answer. Try a narrower question.\n")
-                del history[turn_start:]
+                await _repair_dangling_tool_calls(graph, config)
             except Exception as e:
                 print(f"  ✗ {type(e).__name__}: {e}\n")
-                del history[turn_start:]
+                await _repair_dangling_tool_calls(graph, config)
 
 
 def main() -> None:
-    # Ctrl+C anywhere: exit quietly instead of printing a traceback
+    parser = argparse.ArgumentParser(description="Pipeline Copilot")
+    parser.add_argument("--thread", help="Resume a saved conversation by its id")
+    args = parser.parse_args()
+    # New conversations get a readable, sortable id
+    thread_id = args.thread or datetime.now(timezone.utc).strftime("chat-%Y%m%d-%H%M%S")
     try:
-        asyncio.run(chat())
+        asyncio.run(chat(thread_id))
     except KeyboardInterrupt:
         print()
 

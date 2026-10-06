@@ -101,3 +101,20 @@ def load_knowledge_settings() -> KnowledgeSettings:
         knowledge_dir=PROJECT_ROOT / "knowledge",
         chroma_path=PROJECT_ROOT / os.environ.get("CHROMA_PATH", ".chroma"),
     )
+
+# --- memory ---
+@dataclass(frozen=True)
+class AgentSettings:
+    llm_model: str
+    guardrail_model: str
+    memory_db: Path
+
+
+def load_agent_settings() -> AgentSettings:
+    _require("ANTHROPIC_API_KEY")
+    return AgentSettings(
+        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
+        guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
+        # Conversation checkpoints. Relative to the project root, like .chroma/
+        memory_db=PROJECT_ROOT / os.environ.get("MEMORY_DB", "memory.sqlite"),
+    )
