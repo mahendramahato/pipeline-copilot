@@ -60,7 +60,7 @@ Each ✓ means code found that exact text in that tool's output. The `unverified
 ## Architecture
 
 ```
- user (terminal chat)
+ user: terminal chat, or web UI (React → FastAPI, streamed over SSE)
         │
         ▼
 ┌──────────────────────── LangGraph ────────────────────────┐
@@ -135,6 +135,7 @@ Caveats: a single run per scenario, scenarios written by the agent's author, and
 | Tools | MCP Python SDK (FastMCP), `langchain-mcp-adapters`, stdio transport |
 | Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
 | RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |
+| Interfaces | Terminal chat; FastAPI with Server-Sent Events + React (Vite) |
 | Testing | pytest (43 tests), a simulated eval suite with DuckDB, LangSmith tracing |
 | Tooling | Python 3.12, `uv` |
 
@@ -150,7 +151,10 @@ src/pipeline_copilot/
   knowledge_base.py          chunking, Chroma index, incident memory
   airflow_client.py, athena_client.py
   mcp_servers/               airflow_server, athena_server, knowledge_server
+  runtime.py                 starts MCP servers + memory; one question → stream of events
   cli.py                     terminal chat
+  api.py                     FastAPI: SSE chat stream, saved conversations, serves the UI
+frontend/                    React (Vite) UI: live tool steps, diagnosis card with ✓/✗ evidence
 knowledge/                   pipeline overview + runbooks (the RAG source)
 evals/                       simulated world, fake tools, scenarios, runner
 tests/                       SQL guard, retrieval, grounding tests
@@ -176,6 +180,12 @@ ssh -N -o ServerAliveInterval=30 -L 8080:localhost:8081 ubuntu@<vm-ip>
 uv run pipeline-copilot                           # new conversation
 uv run pipeline-copilot --thread <id>             # resume one
 
+# Web UI: FastAPI serves the built React app and the API on http://127.0.0.1:8000
+(cd frontend && npm install && npm run build)
+uv run pipeline-copilot-api
+# UI development with hot reload: run the API as above, then
+(cd frontend && npm run dev)                      # http://localhost:5173, proxies /api
+
 # Tests (no network needed)
 uv run pytest
 
@@ -191,4 +201,5 @@ uv run python -m evals.run --only stuck_task --repeat 3
 - **Read-only by design:** it diagnoses and suggests fixes; a human applies them.
 - It can't see container logs or Glue CloudWatch logs, so failures inside a stream job or Glue script are visible only through their effects.
 - Over-investigation on simple cases (see Evaluation).
-- **Next:** a web UI (in progress), auto-triggering from Airflow failure callbacks, and human-approved remediation (LangGraph `interrupt()`).
+- The web API has no login, so it binds to localhost only.
+- **Next:** auto-triggering from Airflow failure callbacks, and human-approved remediation (LangGraph `interrupt()`).
