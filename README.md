@@ -59,13 +59,15 @@ Each ✓ means code found that exact text in that tool's output. The `unverified
 
 ## Architecture
 
-![Architecture: React frontend, the LangGraph agent and its MCP servers](docs/architecture.svg)
+![Architecture: React frontend, the LangGraph agent, its MCP servers and the RAG knowledge base](docs/architecture.svg)
 
 **The frontend** is a React web UI: you ask there, and every step streams back live.
 **The agent** is a LangGraph state graph: a cheap guardrail first, then an investigation loop,
 then (for incidents only) a typed diagnosis whose evidence is checked by code before it is
 shown or remembered. **MCP servers** are the only way out to Airflow, Athena and the runbooks,
-and each one runs with read-only credentials.
+and each one runs with read-only credentials. **The knowledge base** is the RAG half: the team's runbooks
+are split by section and embedded into Chroma offline (whenever the docs change), and the
+agent searches them during an investigation. The same store keeps verified past incidents.
 
 - **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
 - **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).

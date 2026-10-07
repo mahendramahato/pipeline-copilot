@@ -1,14 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1420 1030" width="1420" height="1030">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1420 1210" width="1420" height="1210">
 <defs>
   <marker id="data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0 0L10 5L0 10z" fill="#374151"/></marker>
   <marker id="ctrl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0 0L10 5L0 10z" fill="#017CEE"/></marker>
+  <marker id="offline" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0 0L10 5L0 10z" fill="#6b7280"/></marker>
   <marker id="model" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0 0L10 5L0 10z" fill="#c2410c"/></marker>
 </defs>
-<rect width="1420" height="1030" rx="20" fill="#f8fafc"/>
-<rect x="200" y="60" width="830" height="872" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<rect width="1420" height="1210" rx="20" fill="#f8fafc"/>
+<rect x="200" y="60" width="830" height="1052" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
 <text x="218" y="86" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#4f46e5" text-anchor="start">Your machine  ·  Pipeline Copilot (Python, uv)</text>
 <rect x="1060" y="60" width="340" height="180" rx="18" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
 <text x="1078" y="86" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#c2410c" text-anchor="start">Model API</text>
@@ -106,9 +108,9 @@
 <g transform="translate(784,766) scale(1.0833333333333333)"><path d="M8 2v5M16 2v5" stroke="#111827" stroke-width="2.2" stroke-linecap="round"/><path d="M5 7h14v4a7 7 0 0 1-14 0z" fill="#111827"/><path d="M12 18v4" stroke="#111827" stroke-width="2.2" stroke-linecap="round"/></g>
 <g transform="translate(818,766) scale(1.0833333333333333)"><circle cx="9" cy="12" r="6" fill="#FFDE2D" opacity=".95"/><circle cx="15" cy="12" r="6" fill="#327EFF" opacity=".85"/><circle cx="12" cy="12" r="3" fill="#FF6446"/></g>
 <text x="784" y="814" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937" text-anchor="start">Knowledge MCP</text>
-<text x="784" y="832" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">search_runbooks (RAG)</text>
+<text x="784" y="832" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">search_runbooks: semantic search</text>
 <text x="784" y="848" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">search_past_incidents</text>
-<text x="784" y="864" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">Chroma, local embeddings</text>
+<text x="784" y="864" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">record_incident (graph only)</text>
 <polyline points="500,544 500,702 440,702 440,750" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
 <polyline points="500,702 620,702 620,750" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
 <polyline points="620,702 880,702 880,750" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
@@ -117,12 +119,38 @@
 <polyline points="952,544 952,750" fill="none" stroke="#017CEE" stroke-width="2" stroke-dasharray="7 5" stroke-linejoin="round" marker-end="url(#ctrl)"/>
 <rect x="920.4" y="628" width="63.2" height="17" rx="8" fill="#ffffff" opacity=".95"/>
 <text x="952" y="641" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#017CEE" text-anchor="middle">⑤ record</text>
-<polyline points="352,880 352,914 1046,914 1046,358 1083,358" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
-<rect x="507.6" y="902" width="184.8" height="17" rx="8" fill="#ffffff" opacity=".95"/>
-<text x="600" y="915" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="middle">REST /api/v2 via SSH tunnel</text>
-<polyline points="620,880 620,898 1036,898 1036,550 1083,550" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
-<rect x="770.0" y="886" width="140.0" height="17" rx="8" fill="#ffffff" opacity=".95"/>
-<text x="840" y="899" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="middle">boto3, read-only IAM</text>
+<polyline points="352,880 352,906 1046,906 1046,358 1083,358" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
+<rect x="467.6" y="894" width="184.8" height="17" rx="8" fill="#ffffff" opacity=".95"/>
+<text x="560" y="907" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="middle">REST /api/v2 via SSH tunnel</text>
+<polyline points="620,880 620,892 1036,892 1036,550 1083,550" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
+<rect x="675.0" y="880" width="140.0" height="17" rx="8" fill="#ffffff" opacity=".95"/>
+<text x="745" y="893" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="middle">boto3, read-only IAM</text>
+<line x1="215" y1="926" x2="1015" y2="926" stroke="#d1d5db" stroke-dasharray="3 5"/>
+<text x="219" y="944" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#6b7280" text-anchor="start">KNOWLEDGE BASE  ·  RAG</text>
+<rect x="235" y="962" width="205" height="126" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.6"/>
+<g transform="translate(249,976) scale(1.0833333333333333)"><path d="M3 4.5A2.5 2.5 0 0 1 5.5 2H20v17H5.5A2.5 2.5 0 0 0 3 21.5z" fill="#7c3aed"/><path d="M3 21.5A2.5 2.5 0 0 1 5.5 19H20v3H5.5A2.5 2.5 0 0 1 3 21.5z" fill="#c4b5fd"/></g>
+<text x="249" y="1024" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937" text-anchor="start">Runbooks</text>
+<text x="249" y="1042" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">knowledge/*.md: pipeline</text>
+<text x="249" y="1058" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">overview + 5 runbooks,</text>
+<text x="249" y="1074" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">written by the team</text>
+<rect x="470" y="962" width="255" height="126" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.6"/>
+<g transform="translate(484,976) scale(1.0833333333333333)"><path fill="#3776AB" d="M14.25.18l.9.2.73.26.59.3.45.32.34.34.25.34.16.33.1.3.04.26.02.2-.01.13V8.5l-.05.63-.13.55-.21.46-.26.38-.3.31-.33.25-.35.19-.35.14-.33.1-.3.07-.26.04-.21.02H8.77l-.69.05-.59.14-.5.22-.41.27-.33.32-.27.35-.2.36-.15.37-.1.35-.07.32-.04.27-.02.21v3.06H3.17l-.21-.03-.28-.07-.32-.12-.35-.18-.36-.26-.36-.36-.35-.46-.32-.59-.28-.73-.21-.88-.14-1.05-.05-1.23.06-1.22.16-1.04.24-.87.32-.71.36-.57.4-.44.42-.33.42-.24.4-.16.36-.1.32-.05.24-.01h.16l.06.01h8.16v-.83H6.18l-.01-2.75-.02-.37.05-.34.11-.31.17-.28.25-.26.31-.23.38-.2.44-.18.51-.15.58-.12.64-.1.71-.06.77-.04.84-.02 1.27.05zm-6.3 1.98l-.23.33-.08.41.08.41.23.34.33.22.41.09.41-.09.33-.22.23-.34.08-.41-.08-.41-.23-.33-.33-.22-.41-.09-.41.09zm13.09 3.95l.28.06.32.12.35.18.36.27.36.35.35.47.32.59.28.73.21.88.14 1.04.05 1.23-.06 1.23-.16 1.04-.24.86-.32.71-.36.57-.4.45-.42.33-.42.24-.4.16-.36.09-.32.05-.24.02-.16-.01h-8.22v.82h5.84l.01 2.76.02.36-.05.34-.11.31-.17.29-.25.25-.31.24-.38.2-.44.17-.51.15-.58.13-.64.09-.71.07-.77.04-.84.01-1.27-.04-1.07-.14-.9-.2-.73-.25-.59-.3-.45-.33-.34-.34-.25-.34-.16-.33-.1-.3-.04-.25-.02-.2.01-.13v-5.34l.05-.64.13-.54.21-.46.26-.38.3-.32.33-.24.35-.2.35-.14.33-.1.3-.06.26-.04.21-.02.13-.01h5.84l.69-.05.59-.14.5-.21.41-.28.33-.32.27-.35.2-.36.15-.36.1-.35.07-.32.04-.28.02-.21V6.07h2.09l.14.01zm-6.47 14.25l-.23.33-.08.41.08.41.23.33.33.23.41.08.41-.08.33-.23.23-.33.08-.41-.08-.41-.23-.33-.33-.23-.41-.08-.41.08z"/></g>
+<text x="484" y="1024" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937" text-anchor="start">Ingest</text>
+<text x="484" y="1042" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">run when docs change: split by</text>
+<text x="484" y="1058" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">## section, embed with a local</text>
+<text x="484" y="1074" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">model, rebuild the index</text>
+<rect x="755" y="962" width="255" height="126" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.6"/>
+<g transform="translate(769,976) scale(1.0833333333333333)"><circle cx="9" cy="12" r="6" fill="#FFDE2D" opacity=".95"/><circle cx="15" cy="12" r="6" fill="#327EFF" opacity=".85"/><circle cx="12" cy="12" r="3" fill="#FF6446"/></g>
+<text x="769" y="1024" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937" text-anchor="start">Chroma vector store</text>
+<text x="769" y="1042" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">runbooks: sections to search</text>
+<text x="769" y="1058" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">incidents: verified diagnoses</text>
+<text x="769" y="1074" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">(kept across re-ingests)</text>
+<polyline points="440,1024 468,1024" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="2 4" stroke-linejoin="round" marker-end="url(#offline)"/>
+<polyline points="725,1024 753,1024" fill="none" stroke="#6b7280" stroke-width="2" stroke-dasharray="2 4" stroke-linejoin="round" marker-end="url(#offline)"/>
+<polyline points="890,880 890,960" fill="none" stroke="#eef2ff" stroke-width="9" stroke-linejoin="round"/>
+<polyline points="890,880 890,960" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#data)"/>
+<rect x="836.0" y="932" width="108.0" height="17" rx="8" fill="#ffffff" opacity=".95"/>
+<text x="890" y="945" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="middle">search · record</text>
 <rect x="1085" y="96" width="290" height="126" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.6"/>
 <g transform="translate(1099,110) scale(1.0833333333333333)"><path d="M12 1.5l2.2 7.3 7.3 2.2-7.3 2.2L12 22.5l-2.2-7.3L2.5 13l7.3-2.2z" fill="#D97757"/></g>
 <text x="1099" y="158" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937" text-anchor="start">Claude API</text>
@@ -153,13 +181,15 @@
 <g transform="translate(1085,768) scale(1.0833333333333333)"><rect x="4" y="10.5" width="16" height="11" rx="2.5" fill="#6d28d9"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" fill="none" stroke="#6d28d9" stroke-width="2.4"/></g>
 <text x="1118" y="786" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#6d28d9" text-anchor="start">IAM user pipeline-copilot-agent:</text>
 <text x="1118" y="803" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">read-only, no writes to data or catalog</text>
-<rect x="200" y="954" width="1200" height="56" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
-<text x="222" y="987" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#6b7280" text-anchor="start">LEGEND</text>
-<line x1="290" y1="982" x2="340" y2="982" stroke="#374151" stroke-width="2" marker-end="url(#data)"/>
-<text x="352" y="986" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">request / data</text>
-<line x1="470" y1="982" x2="520" y2="982" stroke="#c2410c" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#model)"/>
-<text x="532" y="986" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">LLM call</text>
-<line x1="620" y1="982" x2="670" y2="982" stroke="#017CEE" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#ctrl)"/>
-<text x="682" y="986" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">graph-only write (the model never writes memory)</text>
-<text x="1030" y="986" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">① – ⑤ = order of the graph&#x27;s nodes</text>
+<rect x="200" y="1134" width="1200" height="56" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="222" y="1167" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#6b7280" text-anchor="start">LEGEND</text>
+<line x1="290" y1="1162" x2="330" y2="1162" stroke="#374151" stroke-width="2" marker-end="url(#data)"/>
+<text x="340" y="1166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">request / data</text>
+<line x1="450" y1="1162" x2="490" y2="1162" stroke="#c2410c" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#model)"/>
+<text x="500" y="1166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">LLM call</text>
+<line x1="580" y1="1162" x2="620" y2="1162" stroke="#017CEE" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#ctrl)"/>
+<text x="630" y="1166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">graph-only write (the model never writes memory)</text>
+<line x1="935" y1="1162" x2="975" y2="1162" stroke="#6b7280" stroke-width="2" stroke-dasharray="2 4" marker-end="url(#offline)"/>
+<text x="985" y="1166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start">offline (when docs change)</text>
+<text x="1385" y="1166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="end">① – ⑤ = graph order</text>
 </svg>
