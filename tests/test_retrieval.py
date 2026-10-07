@@ -30,6 +30,19 @@ CASES = [
     # --- how the pipeline normally behaves ---
     ("why is raw data in Athena a day behind?", "pipeline_overview.md"),
     ("how many weather rows per day is normal?", "pipeline_overview.md"),
+    # --- technology explainers and architecture ---
+    ("what is Apache Kafka and what does it do here?", "tech_kafka.md"),
+    ("what happens to messages if the Spark job is down?", "tech_kafka.md"),
+    ("how does the weather anomaly detection work?", "tech_spark_streaming.md"),
+    ("what is Spark Structured Streaming?", "tech_spark_streaming.md"),
+    ("what is Airflow and what does the DAG do?", "tech_airflow.md"),
+    ("what is AWS Glue?", "tech_aws_data_lake.md"),
+    ("what is partition projection in Athena?", "tech_aws_data_lake.md"),
+    ("why use Parquet files?", "tech_aws_data_lake.md"),
+    ("how are all the services connected end to end?", "architecture_end_to_end.md"),
+    ("where does each service run?", "architecture_end_to_end.md"),
+    ("what is MCP and how does this assistant use it?", "tech_pipeline_copilot.md"),
+    ("what is RAG?", "tech_pipeline_copilot.md"),
 ]
 
 

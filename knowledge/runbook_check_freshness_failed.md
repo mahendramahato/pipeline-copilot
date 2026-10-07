@@ -1,4 +1,4 @@
-# Runbook: check_freshness failed (stale streaming lake)
+# Runbook: streaming job stopped or crashed - check_freshness failed, lake is stale
 
 ## Symptoms
 - A streaming job stopped, crashed or died (weather-stream or seismic-stream),

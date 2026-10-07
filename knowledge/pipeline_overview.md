@@ -1,7 +1,7 @@
 # Pipeline overview: weather + seismic lake
 
 ## Data flow
-Producer polls NOAA (weather) and USGS (earthquakes) every minute and sends to Kafka.
+Producer polls NOAA (15 weather stations) and USGS (earthquakes) every minute and sends to Kafka.
 Two Spark Structured Streaming jobs (weather-stream, seismic-stream) run on the VM in
 Docker and write Parquet to the VM's LOCAL lake (data/lake/weather, data/lake/seismic),
 partitioned by date. Nothing reaches S3 until the nightly sync.
@@ -40,5 +40,6 @@ All partitioned by `date` ('YYYY-MM-DD' string).
 - After a successful run on day D, curated tables contain day D-1.
 - Curated row counts are close to raw counts for the same day (dedup removes few rows).
   Curated seismic rows = distinct event_id in raw_seismic for that day.
-- Weather: roughly 800 raw rows per full day. Seismic: roughly 250-350 raw rows per full day.
+- Weather: roughly 160 raw rows per station per full day (15 stations since October 2026;
+  5 before). Seismic: roughly 250-400 raw rows per full day (all USGS revisions).
 

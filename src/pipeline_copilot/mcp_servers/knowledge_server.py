@@ -30,10 +30,13 @@ def search_runbooks(
     ))],
     k: Annotated[int, Field(description="How many sections to return.", ge=1, le=6)] = 3,
 ) -> str:
-    """Search the team's runbooks and pipeline docs: known failure modes, how to check them, fixes.
+    """Search the knowledge base: runbooks (failure modes, how to check, fixes), the pipeline
+    overview and architecture, and explainers for each technology (Kafka, Spark, Airflow,
+    S3/Glue/Athena, Parquet, and how Pipeline Copilot itself works).
 
-    Use this whenever you see a symptom, and BEFORE concluding a root cause. The runbooks
-    hold pipeline-specific knowledge that the other tools and general knowledge lack.
+    Use this whenever you see a symptom, BEFORE concluding a root cause, and for any "what is X /
+    how does it work / how is it connected" question. It holds pipeline-specific knowledge that
+    the other tools and general knowledge lack.
     Each result starts with its source (file > section): cite it in your answer.
     """
     try:
