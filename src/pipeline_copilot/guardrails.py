@@ -1,11 +1,11 @@
 """Input guardrail: a cheap classifier that runs before the agent."""
 from typing import Literal
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from pipeline_copilot.graph_state import AgentState
+from pipeline_copilot.llm import chat_model
 
 GUARDRAIL_PROMPT = """You screen messages sent to Pipeline Copilot, a read-only on-call
 assistant for a weather and seismic data pipeline (Airflow DAGs, task logs, an Athena
@@ -38,9 +38,10 @@ class GuardrailVerdict(BaseModel):
     category: Literal["question", "incident", "off_topic", "unsafe"]
 
 def make_input_guardrail(model: str):
-    # with_structured_output makes Haiku return a GuardrailVerdict object, not
+    # with_structured_output makes the model return a GuardrailVerdict object, not
     # free text, so the code below branches on a field instead of parsing words.
-    classifier = ChatAnthropic(model=model, max_tokens=256).with_structured_output(GuardrailVerdict)
+    # 1024 tokens leaves room for models that reason before answering.
+    classifier = chat_model(model, max_tokens=1024).with_structured_output(GuardrailVerdict)
 
     async def input_guardrail(state: AgentState) -> dict:
         question = state["messages"][-1].text

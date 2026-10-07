@@ -4,25 +4,34 @@ Pure code, no LLM judge: the same diagnosis always gets the same score.
 """
 from evals.scenario import Scenario
 
-OPUS_PRICE = (4.00, 20.00)   # $ per 1M input / output tokens, Claude Opus 5.5
-CACHE_READ_PRICE = 0.20      # $ per 1M cached input tokens read
-CACHE_WRITE_PRICE = 5.00     # $ per 1M input tokens written to the cache (1.25x input)
+# $ per 1M tokens: (input, output, cached input read, cache write), standard tier.
+# Claude cache writes cost 1.25x input; OpenAI has no write surcharge.
+# Check provider pricing pages before relying on these.
+PRICES = {
+    "claude-opus-5-5":   (4.00, 20.00, 0.20, 5.00),
+    "claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50),
+    "gpt-6-astra":       (10.00, 50.00, 1.00, 10.00),
+    "gpt-6.1-sol":       (2.00, 10.00, 0.10, 2.00),
+    "gpt-6-sol":         (2.00, 10.00, 0.20, 2.00),
+    "gpt-5.6-sol":       (4.00, 20.00, 0.40, 4.00),
+    "gpt-5.6-terra":     (2.00, 12.00, 0.20, 2.00),
+}
 
 
-def _input_cost(u: dict) -> float:
+def _cost(u: dict, price: tuple) -> float:
     # input_tokens includes cached tokens; split them out so caching shows in the cost
+    p_in, p_out, p_read, p_write = price
     d = u.get("input_token_details") or {}
     read, write = d.get("cache_read", 0), d.get("cache_creation", 0)
     uncached = u["input_tokens"] - read - write
-    return uncached * OPUS_PRICE[0] + read * CACHE_READ_PRICE + write * CACHE_WRITE_PRICE
+    return (uncached * p_in + read * p_read + write * p_write + u["output_tokens"] * p_out) / 1e6
 
 
-def score(s: Scenario, final_state: dict) -> dict:
+def score(s: Scenario, final_state: dict, model: str) -> dict:
     messages = final_state["messages"]
     tools_used = [c["name"] for m in messages for c in (getattr(m, "tool_calls", None) or [])]
     usage = [m.usage_metadata for m in messages if getattr(m, "usage_metadata", None)]
-    input_cost = sum(_input_cost(u) for u in usage)
-    tokens_out = sum(u["output_tokens"] for u in usage)
+    price = PRICES.get(model)
 
     base = {
         "scenario": s.id,
@@ -30,8 +39,9 @@ def score(s: Scenario, final_state: dict) -> dict:
         "intent": final_state.get("intent"),
         "tool_calls": len(tools_used),
         "tools_used": tools_used,
-        # agent-loop tokens only: excludes the Haiku guardrail and the diagnose call
-        "cost_usd": round((input_cost + tokens_out * OPUS_PRICE[1]) / 1e6, 3),
+        # agent-loop tokens only: excludes the guardrail and the diagnose call.
+        # None when the model isn't in PRICES (cost unknown, not zero).
+        "cost_usd": round(sum(_cost(u, price) for u in usage), 3) if price else None,
     }
 
     d = final_state.get("diagnosis")

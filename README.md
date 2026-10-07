@@ -131,7 +131,7 @@ Caveats: a single run per scenario, scenarios written by the agent's author, and
 
 | | |
 |---|---|
-| Agent | LangGraph, `langchain-anthropic`, Claude Opus 5.5 (agent + diagnosis), Claude Haiku 4.5 (guardrail), prompt caching |
+| Agent | LangGraph, Claude Opus 5.5 (agent + diagnosis), Claude Haiku 4.5 (guardrail), prompt caching. Provider is switchable: set `LLM_MODEL` to a `gpt-*` model to run on OpenAI |
 | Tools | MCP Python SDK (FastMCP), `langchain-mcp-adapters`, stdio transport |
 | Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
 | RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |
@@ -189,8 +189,9 @@ uv run pipeline-copilot-api
 # Tests (no network needed)
 uv run pytest
 
-# Eval suite (costs ~$1.50 in Claude usage)
+# Eval suite (~$0.60 on Opus with caching)
 uv run python -m evals.run
+LLM_MODEL=gpt-6.1-sol uv run python -m evals.run   # same suite on another model
 uv run python -m evals.run --only stuck_task --repeat 3
 ```
 

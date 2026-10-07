@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from pipeline_copilot.llm import API_KEY_ENV, provider_for
+
 # --- Load .env into os.environ ---
 # Values already set in your shell win over .env (override=False is the
 # default), so you can try another model for a single run without editing
@@ -36,12 +38,16 @@ class AgentSettings:
 
 
 def load_agent_settings() -> AgentSettings:
-    # The SDK reads ANTHROPIC_API_KEY itself; we only check it exists.
-    _require("ANTHROPIC_API_KEY")
+    llm_model = os.environ.get("LLM_MODEL", "claude-opus-5-5")
+    # Small, fast model for classification: far cheaper per question than the agent
+    guardrail_model = os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5")
+    # Each provider's SDK reads its own key; we only check the keys of the
+    # providers actually in use exist (e.g. no OpenAI key needed for Claude-only).
+    for model in {llm_model, guardrail_model}:
+        _require(API_KEY_ENV[provider_for(model)])
     return AgentSettings(
-        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5-5"),
-        # Small, fast model for classification: ~100x cheaper per question than the agent
-        guardrail_model=os.environ.get("GUARDRAIL_MODEL", "claude-haiku-4-5"),
+        llm_model=llm_model,
+        guardrail_model=guardrail_model,
         # Conversation checkpoints. Relative to the project root, like .chroma/
         memory_db=PROJECT_ROOT / os.environ.get("MEMORY_DB", "memory.sqlite"),
     )

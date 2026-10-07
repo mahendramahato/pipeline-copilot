@@ -23,7 +23,8 @@ RESULTS_DIR = Path(__file__).parent / "results"
 
 async def run_one(build, attempt: int) -> dict:
     s = build()                                             # a fresh, identical world every time
-    graph = build_graph(load_agent_settings(), await make_fake_tools(s.world))
+    settings = load_agent_settings()
+    graph = build_graph(settings, await make_fake_tools(s.world))
     # No checkpointer: each run is isolated. thread_id is still needed by the remember node.
     config = {"configurable": {"thread_id": f"eval-{s.id}-{attempt}"}, "recursion_limit": 30}
     try:
@@ -31,7 +32,7 @@ async def run_one(build, attempt: int) -> dict:
     except Exception as e:
         return {"scenario": s.id, "runbook_covered": s.runbook_covered, "correct": False,
                 "failure": f"{type(e).__name__}: {e}"}
-    return score(s, state)
+    return score(s, state, settings.llm_model)
 
 
 def _line(r: dict) -> str:
@@ -41,7 +42,11 @@ def _line(r: dict) -> str:
     flags = " ".join(f for f, on in [("ungrounded", not r["grounded"]),
                                      ("CONFIDENTLY-WRONG", r["confidently_wrong"])] if on)
     return (f"{mark} {r['scenario']:28} got={r['category_got']:18} conf={r['confidence']:6} "
-            f"calls={r['tool_calls']:2} ${r['cost_usd']:.2f} {flags}")
+            f"calls={r['tool_calls']:2} {_money(r['cost_usd'])} {flags}")
+
+
+def _money(v) -> str:
+    return "$?" if v is None else f"${v:.2f}"
 
 
 def _summary(results: list[dict]) -> str:
@@ -55,8 +60,10 @@ def _summary(results: list[dict]) -> str:
         f"Confidently wrong: {sum(r['confidently_wrong'] for r in scored)}",
     ]
     if scored:
+        costs = [r["cost_usd"] for r in scored if r["cost_usd"] is not None]
+        avg_cost = _money(sum(costs) / len(costs)) if costs else "$? (model not in PRICES)"
         lines.append(f"Avg tool calls: {sum(r['tool_calls'] for r in scored) / len(scored):.1f}   "
-                     f"Avg agent-loop cost: ${sum(r['cost_usd'] for r in scored) / len(scored):.2f}")
+                     f"Avg agent-loop cost: {avg_cost}")
     return "\n".join(lines)
 
 
@@ -82,13 +89,14 @@ async def main() -> None:
 
     # Save every run: compare before/after a change to know whether it actually helped
     RESULTS_DIR.mkdir(exist_ok=True)
+    model = load_agent_settings().llm_model
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    (RESULTS_DIR / f"{stamp}.json").write_text(json.dumps(results, indent=2, default=str))
+    (RESULTS_DIR / f"{stamp}-{model}.json").write_text(json.dumps(results, indent=2, default=str))
     (RESULTS_DIR / "latest.md").write_text(
-        f"# Eval results ({stamp} UTC)\n\n```\n" + "\n".join(_line(r) for r in results)
+        f"# Eval results ({stamp} UTC, model {model})\n\n```\n" + "\n".join(_line(r) for r in results)
         + f"\n\n{summary}\n```\n"
     )
-    print(f"\nSaved: evals/results/{stamp}.json and evals/results/latest.md")
+    print(f"\nSaved: evals/results/{stamp}-{model}.json and evals/results/latest.md")
 
 
 if __name__ == "__main__":

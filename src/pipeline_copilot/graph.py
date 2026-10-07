@@ -1,9 +1,9 @@
-"""The agent: Claude + tools wired into a LangGraph loop."""
+"""The agent: an LLM + tools wired into a LangGraph loop."""
 import json
 from datetime import datetime, timezone
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -11,10 +11,9 @@ from langgraph.prebuilt import ToolNode
 from pipeline_copilot.config import AgentSettings
 from pipeline_copilot.graph_state import AgentState
 from pipeline_copilot.guardrails import make_input_guardrail
+from pipeline_copilot.llm import chat_model, provider_for
 from pipeline_copilot.models import Diagnosis
-
 from pipeline_copilot.output_guardrail import check_grounding
-from langchain_core.runnables import RunnableConfig
 
 # --- System prompt ---
 SYSTEM_PROMPT = """You are Pipeline Copilot, an on-call assistant for a weather and seismic data pipeline.
@@ -101,31 +100,37 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
 
     recorder = next((t for t in tools if t.name == "record_incident"), None)
 
-    # --- The model ---
+    # --- The model (Claude or OpenAI, picked from the model name) ---
     # bind_tools sends the tool schemas (from your docstrings) with every
-    # request, so Claude knows what it can call. The API key is read from
-    # ANTHROPIC_API_KEY by the SDK; we never pass it around.
-    llm = ChatAnthropic(model=settings.llm_model, max_tokens=16000)
-    # Prompt caching: every agent call resends the system prompt, the tool schemas
-    # and the whole conversation so far. Top-level cache_control tells the API to
-    # cache everything up to the last block, so the next call reads that repeated
-    # prefix at ~5% of the input price instead of paying full price again.
-    # The cache lives ~5 minutes, which covers an investigation's back-to-back calls.
-    llm_with_tools = llm.bind_tools(all_tools, cache_control={"type": "ephemeral"})
+    # request, so the model knows what it can call. API keys are read from the
+    # environment by each provider's SDK; we never pass them around.
+    provider = provider_for(settings.llm_model)
+    llm = chat_model(settings.llm_model, max_tokens=16000)
+    if provider == "anthropic":
+        # Prompt caching: every agent call resends the system prompt, the tool schemas
+        # and the whole conversation so far. Top-level cache_control tells the API to
+        # cache everything up to the last block, so the next call reads that repeated
+        # prefix at ~5% of the input price instead of paying full price again.
+        # The cache lives ~5 minutes, which covers an investigation's back-to-back calls.
+        llm_with_tools = llm.bind_tools(all_tools, cache_control={"type": "ephemeral"})
+    else:
+        # OpenAI caches repeated prompt prefixes automatically: nothing to switch on
+        llm_with_tools = llm.bind_tools(all_tools)
 
     # --- Node 1: agent ---
     # async because the graph now runs with astream(): MCP tools are
-    # async-only, and an async graph needs async nodes to await Claude.
+    # async-only, and an async graph needs async nodes to await the model.
     async def agent(state: AgentState) -> dict:
         response = await llm_with_tools.ainvoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])
         return {"messages": [response]}
-    
-        # --- Node: diagnose (incidents only) ---
+
+    # --- Node: diagnose (incidents only) ---
     # One focused call that extracts a typed Diagnosis from the investigation.
     # method="json_schema": the API constrains the output to the schema directly
     # (Opus 5.5 can't be forced to call a tool, which other methods rely on).
-    diagnoser = ChatAnthropic(model=settings.llm_model, max_tokens=16000).with_structured_output(
-        Diagnosis, method="json_schema"
+    # On OpenAI, strict=True makes the schema binding exact rather than best-effort.
+    diagnoser = chat_model(settings.llm_model, max_tokens=16000).with_structured_output(
+        Diagnosis, method="json_schema", **({"strict": True} if provider == "openai" else {})
     )
 
     async def diagnose(state: AgentState) -> dict:
