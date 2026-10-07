@@ -59,37 +59,13 @@ Each ✓ means code found that exact text in that tool's output. The `unverified
 
 ## Architecture
 
-```
- user: terminal chat, or web UI (React → FastAPI, streamed over SSE)
-        │
-        ▼
-┌──────────────────────── LangGraph ────────────────────────┐
-│                                                           │
-│  input_guardrail (Haiku) ── off-topic / unsafe ─► refusal │
-│        │ question / incident                              │
-│        ▼                                                  │
-│      agent (Opus) ◄──► tools ──── MCP ────┐               │
-│        │ done                             │               │
-│        ▼ (incidents only)                 │               │
-│      diagnose → verify_diagnosis → remember               │
-│      (typed)    (grounding check)  (incident memory)      │
-│                                                           │
-│  checkpointer: conversations in SQLite (resumable)        │
-└───────────────────────────────────────────┼───────────────┘
-                                            │
-        ┌───────────────────────────────────┼─────────────────────┐
-        ▼                                   ▼                     ▼
- Airflow MCP server                Athena MCP server       Knowledge MCP server
- list_dags, get_recent_dag_runs,   list_tables, get_table_ search_runbooks,
- get_task_instances, get_task_log  schema, get_table_      search_past_incidents,
- (Airflow Viewer role)             versions, get_registered record_incident
-        │                          _partitions, run_query   (graph-only)
-        ▼                          (SQL guardrail, read-       │
- Airflow 3 REST API                only IAM)                   ▼
- (via SSH tunnel)                        │                  Chroma: runbooks +
-                                         ▼                  past incidents
-                                  Athena + Glue catalog
-```
+![Architecture: interfaces, the LangGraph agent and its MCP servers](docs/architecture.svg)
+
+**Interfaces** (terminal and web UI) share one agent runtime, so both show the same steps.
+**The agent** is a LangGraph state graph: a cheap guardrail first, then an investigation loop,
+then (for incidents only) a typed diagnosis whose evidence is checked by code before it is
+shown or remembered. **MCP servers** are the only way out to Airflow, Athena and the runbooks,
+and each one runs with read-only credentials.
 
 - **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
 - **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).
