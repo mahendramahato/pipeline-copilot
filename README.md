@@ -1,5 +1,7 @@
 # Pipeline Copilot
 
+**Live demo: [pipeline-copilot.duckdns.org](https://pipeline-copilot.duckdns.org)**: replay real investigations, including the one where it found a silent bug in my pipeline.
+
 **An AI on-call assistant for data pipelines.** Ask it why something looks wrong and it investigates the way an on-call engineer would: it reads Airflow runs and logs, queries the data lake, checks the team's runbooks and past incidents, then returns a structured diagnosis in which **every piece of evidence is verified against real tool output**.
 
 Built with **LangGraph** (agent loop), **MCP** (three tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
