@@ -11,9 +11,12 @@ RUN npm run build
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /bin/uv
 
-# Run as an unprivileged user. /data holds conversations and the vector store
-# (a volume), so it must belong to that user.
-RUN useradd --create-home app && mkdir /data /app && chown app /data /app
+# Run as an unprivileged user. Its uid should match the VM user that owns the
+# mounted secret files (.env.deploy, ~/.aws-copilot, both chmod 600), so it can
+# read them: set APP_UID (e.g. 1001 on the Oracle VM). /data (a volume) holds
+# conversations and the vector store, so it must belong to that user too.
+ARG APP_UID=1000
+RUN useradd --create-home --uid ${APP_UID} app && mkdir /data /app && chown app /data /app
 USER app
 WORKDIR /app
 

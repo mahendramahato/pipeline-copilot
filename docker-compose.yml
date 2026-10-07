@@ -7,7 +7,12 @@
 #   docker compose up -d --build
 services:
   copilot:
-    build: .
+    build:
+      context: .
+      # uid of the VM user that owns the mounted secret files (`id -u`); set it in
+      # a .env file next to this compose file: APP_UID=1001
+      args:
+        APP_UID: ${APP_UID:-1000}
     container_name: copilot
     restart: unless-stopped
     env_file: .env.deploy
