@@ -59,9 +59,9 @@ Each ✓ means code found that exact text in that tool's output. The `unverified
 
 ## Architecture
 
-![Architecture: interfaces, the LangGraph agent and its MCP servers](docs/architecture.svg)
+![Architecture: React frontend, the LangGraph agent and its MCP servers](docs/architecture.svg)
 
-**Interfaces** (terminal and web UI) share one agent runtime, so both show the same steps.
+**The frontend** is a React web UI: you ask there, and every step streams back live.
 **The agent** is a LangGraph state graph: a cheap guardrail first, then an investigation loop,
 then (for incidents only) a typed diagnosis whose evidence is checked by code before it is
 shown or remembered. **MCP servers** are the only way out to Airflow, Athena and the runbooks,
