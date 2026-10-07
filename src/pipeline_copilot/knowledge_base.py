@@ -4,7 +4,6 @@ Build or rebuild the index (run after editing anything in knowledge/):
     uv run python -m pipeline_copilot.knowledge_base
 """
 import re
-import json
 from pathlib import Path
 from datetime import datetime, timezone
 

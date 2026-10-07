@@ -1,0 +1,92 @@
+# CI on every push and pull request; CD (deploy) only when main is pushed and
+# every CI job has passed.
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Default: read-only access to the repo.
+permissions:
+  contents: read
+
+jobs:
+  # --- CI: lint + tests (SQL guardrail, retrieval, grounding, eval harness) ---
+  # No API keys needed: nothing here calls a model, Airflow or AWS.
+  python:
+    name: Python lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.12.23
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+
+  # --- CI: frontend production build ---
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # --- CI: the production image builds ---
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t ci-copilot .
+
+  # --- CD: deploy to the server ---
+  deploy:
+    name: Deploy to server
+    needs: [python, frontend, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Never run two deploys at once; a newer push waits for the current one.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      # SSH in with a deploy-only key; the server's host key is pinned in a
+      # secret, so the connection can't be redirected to another machine.
+      - name: Deploy on the server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key "ubuntu@$HOST" \
+            'cd ~/pipeline-copilot && OLD=$(git rev-parse HEAD) && git pull --ff-only && bash scripts/deploy.sh "$OLD"'
+
+      # End-to-end check from the internet: DNS, Caddy, HTTPS and the app.
+      - name: Public smoke test
+        run: |
+          for _ in $(seq 1 20); do
+            if curl -fsS --max-time 10 https://pipeline-copilot.duckdns.org/api/health > /dev/null; then
+              echo "Live site healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "FAILED: https://pipeline-copilot.duckdns.org/api/health is not healthy"
+          exit 1

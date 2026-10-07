@@ -1,5 +1,7 @@
 """Fake tools for evals: the SAME names, descriptions and schemas as the real MCP
 tools (copied from the servers at runtime), answering from a simulated World."""
+import csv
+import tempfile
 from datetime import datetime
 
 import duckdb
@@ -29,10 +31,13 @@ def _duckdb(world: World) -> duckdb.DuckDBPyConnection:
         cols = {**SCHEMAS[table], "date": "string"}
         con.execute(f"CREATE TABLE {table} ({', '.join(f'{c} {_DUCK_TYPES[t]}' for c, t in cols.items())})")
         if rows:
-            con.executemany(
-                f"INSERT INTO {table} VALUES ({', '.join('?' for _ in cols)})",
-                [[r.get(c) for c in cols] for r in rows],
-            )
+            # Bulk load through a CSV file: ~100x faster than row-by-row INSERTs.
+            # Empty fields are read back as NULL.
+            with tempfile.NamedTemporaryFile("w", suffix=".csv", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows([["" if r.get(c) is None else r[c] for c in cols] for r in rows])
+                f.flush()
+                con.execute(f"COPY {table} FROM '{f.name}' (HEADER false, NULL '')")
     return con
 
 

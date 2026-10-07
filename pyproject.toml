@@ -34,4 +34,19 @@ build-backend = "uv_build"
 dev = [
     "duckdb>=1.5.6",
     "pytest>=9.1.1",
+    "ruff==0.16.10",
 ]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["frontend"]
+
+[tool.ruff.lint]
+# E9 = syntax errors, F = real bugs (undefined names, unused imports, ...).
+# Style rules are left off on purpose: the goal is catching mistakes.
+select = ["E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# project root on the path, so tests can import the evals/ harness
+pythonpath = ["."]

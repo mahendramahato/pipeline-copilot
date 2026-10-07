@@ -193,6 +193,23 @@ cp .env.deploy.example .env.deploy        # fill in keys and passwords
 docker compose up -d --build
 ```
 
+### CI/CD
+
+GitHub Actions ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)), the same setup as the
+weather-seismic project:
+
+- **CI** on every push and pull request, in parallel:
+  - **Python:** `ruff` lint, then `pytest`: the SQL guardrail, retrieval quality, the evidence
+    grounding check, and the eval harness (every scenario builds, every real MCP tool has a
+    fake). No API keys needed: nothing calls a model, Airflow or AWS.
+  - **Frontend:** production build.
+  - **Docker:** the production image builds.
+- **CD** on push to `main`, only after all CI jobs pass: SSH to the server with a deploy-only
+  key (host key pinned), run [`scripts/deploy.sh`](scripts/deploy.sh) (pull, rebuild, health check
+  inside the container), then a public smoke test of `https://pipeline-copilot.duckdns.org`.
+
+The eval suite itself is not in CI: it calls a real model, so it costs money and is run by hand.
+
 ---
 
 ## Limitations and future work
