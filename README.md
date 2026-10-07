@@ -1,368 +1,194 @@
-# Pipeline Copilot — AI On-Call Assistant for Data Pipelines
+# Pipeline Copilot
 
-When a data pipeline breaks, or quietly loads bad data, Pipeline Copilot investigates and explains the root cause with evidence.
+**An AI on-call assistant for data pipelines.** Ask it why something looks wrong and it investigates the way an on-call engineer would: it reads Airflow runs and logs, queries the data lake, checks the team's runbooks and past incidents, then returns a structured diagnosis in which **every piece of evidence is verified against real tool output**.
 
-Built with **LangGraph** (agent loop), **MCP** (tool servers for Airflow and Athena), **RAG** (runbooks), **guardrails** (read-only by design), and **memory** (conversation + incident history).
+Built with **LangGraph** (agent loop), **MCP** (three tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
 
-The test target is my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline). The agent should work on any Airflow + Athena pipeline.
-
----
-
-## 1. The problem
-
-When a pipeline breaks, an on-call engineer normally has to:
-1. Dig through Airflow logs
-2. Query tables to check the data
-3. Search old notes for how it was fixed last time
-4. Work out the root cause
-
-Pipeline Copilot does steps 1–4 in minutes and hands back a diagnosis.
-
-**What plain alerting misses:** silent failures. For example, a DAG *succeeds* but loads 0 rows because the upstream API renamed a field. Airflow shows green, but the data is wrong.
+It runs against my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline) (NOAA + USGS → Kafka → Spark → S3 → Glue → Athena, orchestrated by Airflow), but nothing in the design is specific to it.
 
 ---
 
-## 2. Scope
+## It found a real bug in my pipeline
 
-**v1 (this project): investigate and explain.**
-- The user asks a question in a terminal chat
-- The agent checks Airflow, the data, and runbooks
-- It returns a structured diagnosis: root cause, evidence, suggested fix
-- **Read-only.** The agent never changes anything. A human applies the fix.
+While I was building it, the agent found a **silent failure** in the live pipeline:
 
-**Future work (not in v1):** executing fixes with human approval, auto-triggering from Airflow failures, opening GitHub PRs, a web UI.
+- Every Airflow run was **green**, and the Glue curation job reported **SUCCEEDED** every night.
+- But the curated tables had **stopped updating 4 days earlier**. By the time it was fixed, about 4,200 weather readings and 1,700 raw earthquake rows were sitting uncurated.
 
----
+What happened: I had deleted a Glue crawler that I thought was no longer needed. Athena kept seeing new data through *partition projection*, but the Glue Spark job reads through the Glue catalog, which **ignores projection**. So the job read 0 rows each night and "succeeded".
 
-## 3. Architecture
-
-### 3.1 Full system
-
-```
-╔══════════════════════════════════════════════════════════════════════╗
-║  OFFLINE  (run once, and again whenever runbooks change)             ║
-║                                                                      ║
-║  knowledge/*.md ──► split into ──► embedding ──► Chroma vector DB    ║
-║  (runbooks,         chunks         model         (.chroma/)          ║
-║   table notes)                                                       ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-  ┌────────────────────────────────────────────────────────────────┐
-  │  USER (terminal chat)                                          │
-  │  "Dashboard shows zero earthquakes today. Real or a bug?"      │
-  └───────────────────────────────┬────────────────────────────────┘
-                                  ▼
-  ┌────────────────────────────────────────────────────────────────┐
-  │  LANGGRAPH APP                                                 │
-  │                                                                │
-  │   ┌──────────────────┐                                         │
-  │   │ INPUT GUARDRAIL  │── off-topic / unsafe ──► refusal ─► END │
-  │   └────────┬─────────┘                                         │
-  │            ▼                                                   │
-  │   ┌──────────────────┐  prompt   ┌──────────────────┐          │
-  │   │   AGENT NODE     │─────────► │   LLM (API)      │          │
-  │   │                  │ ◄──────── │                  │          │
-  │   └───┬─────────▲────┘  reply    └──────────────────┘          │
-  │       │ tool    │ result                                       │
-  │       │ call    │ (errors too — the agent adapts)              │
-  │       ▼         │                                              │
-  │   ┌─────────────┴────┐                                         │
-  │   │   TOOLS NODE     │── local tool: search_runbooks ──► Chroma│
-  │   │  (MCP client)    │                                         │
-  │   └───────┬──────────┘                                         │
-  │           │ done investigating                                 │
-  │           ▼                                                    │
-  │   ┌──────────────────┐                                         │
-  │   │ DIAGNOSIS NODE   │  structured output (Pydantic):          │
-  │   │                  │  root cause, evidence, fix, confidence  │
-  │   └───────┬──────────┘                                         │
-  │           ▼                                                    │
-  │   ┌──────────────────┐                                         │
-  │   │ OUTPUT GUARDRAIL │  every claim must cite tool evidence    │
-  │   └───────┬──────────┘                                         │
-  │           ▼                                                    │
-  │      answer to user                                            │
-  │                                                                │
-  │   ┌────────────────────────────────────────────────────────┐   │
-  │   │ MEMORY                                                 │   │
-  │   │  short-term: checkpointer → memory.sqlite              │   │
-  │   │    (this conversation, keyed by thread_id)             │   │
-  │   │  long-term: store → memory.sqlite                      │   │
-  │   │    (past incident summaries: "has this happened        │   │
-  │   │     before?")                                          │   │
-  │   └────────────────────────────────────────────────────────┘   │
-  └──────────────┬──────────────────────────────┬──────────────────┘
-                 │ MCP                          │ MCP
-                 ▼                              ▼
-  ┌───────────────────────────┐   ┌────────────────────────────────┐
-  │  AIRFLOW MCP SERVER       │   │  ATHENA MCP SERVER             │
-  │  (Airflow Viewer user)    │   │  (read-only IAM profile)       │
-  │                           │   │                                │
-  │  • list_dags              │   │  • run_query                   │
-  │  • get_dag_runs           │   │      └─ SQL GUARDRAIL:         │
-  │  • get_task_instances     │   │         SELECT only, one       │
-  │  • get_task_logs          │   │         statement, auto LIMIT  │
-  │      └─ trims logs to     │   │  • get_table_schema            │
-  │         errors + tail     │   │  • get_table_versions          │
-  │                           │   │      (detects schema drift)    │
-  └─────────────┬─────────────┘   └───────────────┬────────────────┘
-                │ REST API                        │ boto3
-                ▼                                 ▼
-  ┌───────────────────────────┐   ┌────────────────────────────────┐
-  │  Airflow                  │   │  Athena + Glue Data Catalog    │
-  │  (Oracle Cloud VM,        │   │  (Parquet on S3)               │
-  │   reached via SSH tunnel) │   │                                │
-  └───────────────────────────┘   └────────────────────────────────┘
-```
-
-**Key idea:** the agent *decides*; the MCP servers *do* and *enforce*. The agent never touches Airflow or Athena directly, and the servers only hold read-only credentials. So even a confused LLM cannot change anything.
-
-### 3.2 LangGraph flow
-
-```
-              START
-                │
-                ▼
-       ┌─────────────────┐
-       │ input_guardrail │── blocked ──► refusal ──► END
-       └────────┬────────┘
-                │ ok
-                ▼
-       ┌─────────────────┐
-  ┌──► │      agent      │
-  │    └────────┬────────┘
-  │             │
-  │      wants a tool?
-  │       │          │
-  │      yes         no
-  │       ▼          ▼
-  │  ┌─────────┐  ┌───────────┐
-  └──│  tools  │  │ diagnosis │
-     └─────────┘  └─────┬─────┘
-                        ▼
-              ┌──────────────────┐
-              │ output_guardrail │
-              └────────┬─────────┘
-                       ▼
-             save incident to memory
-                       ▼
-                      END
-```
-
-The **agent ⇄ tools** loop is what makes it agentic: the LLM chooses each next step until it has enough evidence. A max-steps limit stops it from looping forever.
-
-### 3.3 RAG in two halves
-
-```
-INGESTION (offline)
-  knowledge/schema_drift.md ──► chunk by heading ──► embed ──► Chroma
-                                                   + metadata {type: runbook, dag_id: ...}
-
-RETRIEVAL (runtime, via search_runbooks)
-  "zero rows loaded, task succeeded" ──► embed ──► nearest chunks ──► top 3 back to agent
-```
-
-### 3.4 Example investigation
-
-> "Dashboard shows zero earthquakes today. Real or a bug?"
-
-1. **input_guardrail**: about the pipeline, so it passes.
-2. `get_dag_runs("seismic_ingest")`: the last run **succeeded**.
-3. `run_query("SELECT count(*) ... WHERE date = today")`: **0 rows**. Suspicious.
-4. `get_table_versions("earthquakes")`: the schema changed yesterday, and `mag` was renamed to `magnitude`.
-5. `search_runbooks("succeeded but zero rows")`: returns the schema drift runbook.
-6. **Memory**: "This happened once before, on 2026-08-14."
-7. **diagnosis**:
-   - Root cause: upstream USGS field rename (schema drift)
-   - Evidence: the DAG run ID, the 0-row count, the schema diff
-   - Suggested fix: update the loader's field mapping, then backfill today
-   - Confidence: high
-
----
-
-## 4. Concepts → where they live
-
-| Concept | Where | Phase |
-|---|---|---|
-| Tools | Airflow, Athena and runbook tools | 1 |
-| LangGraph | `graph.py`: nodes, edges, agent loop | 1 |
-| MCP | Airflow and Athena MCP servers | 2–3 |
-| Guardrails | Input node, SQL guard, read-only creds, output node | 3 |
-| RAG | `knowledge/` → Chroma → `search_runbooks` | 4 |
-| Memory | Checkpointer + long-term store | 5 |
-| Evals | Injected failures + score table | 6 |
-
-### Guardrails (four layers)
-
-| Layer | Guards against | How |
-|---|---|---|
-| Credentials | Any write, ever | Airflow Viewer role; read-only IAM; Athena workgroup scan limit |
-| SQL guard | Destructive or huge queries | Parse SQL (sqlglot), allow one SELECT, force LIMIT |
-| Input guardrail | Off-topic or unsafe requests | Classifier node before the agent |
-| Output guardrail | Made-up claims | Diagnosis must cite evidence from tool results |
-
-### Diagnosis output (draft)
-
-```python
-from pydantic import BaseModel
-from typing import Literal
-
-class Evidence(BaseModel):
-    source: Literal["airflow", "athena", "runbook", "memory"]
-    detail: str                 # e.g. "run_id=scheduled__2026-10-02, state=success"
-
-class Diagnosis(BaseModel):
-    root_cause: str
-    category: Literal[
-        "schema_drift", "bad_upstream_data", "transient_failure",
-        "duplicates", "code_bug", "stuck_task", "unknown",
-    ]
-    evidence: list[Evidence]    # must be non-empty: no evidence, no claim
-    suggested_fix: str          # for a human to apply; the agent never executes it
-    confidence: Literal["low", "medium", "high"]
-```
-
----
-
-## 5. Tech stack
-
-| Layer | Choice |
+| Stage | What the agent did |
 |---|---|
-| Language | Python 3.11+, `uv` |
-| Agent orchestration | LangGraph |
-| MCP servers | MCP Python SDK (`FastMCP`) |
-| MCP client | `langchain-mcp-adapters` |
-| LLM | Configurable via env var (needs tool calling + structured output) |
-| Vector DB | Chroma (local) |
-| Memory | LangGraph SQLite checkpointer + store |
-| SQL parsing | sqlglot |
-| AWS | boto3 (Athena, Glue) |
-| Tracing | LangSmith or Langfuse |
-| Tests | pytest |
+| Without RAG | Detected the silent failure and its exact impact, but blamed the wrong side. It even fetched the decisive evidence (catalog partitions stopping at 09-30) and explained it away |
+| With a runbook (RAG) | Correct root cause, with evidence from both raw tables, and cited the runbook. It also noted that "a change around 09-30 stopped partition registration", which turned out to be exactly the crawler deletion |
+| Fixed | The Glue job now reads S3 paths directly and **fails loudly** on empty input; 10-01 to 10-06 backfilled |
 
-### Target pipeline
-NOAA + USGS → Python producer → Kafka → Spark Structured Streaming → Parquet on S3 → Glue ETL + Data Catalog → Athena. Orchestrated by Airflow, running in Docker Compose on an Oracle Cloud VM.
-
-Kafka/Spark streaming health is **out of scope for v1**. The agent sees the pipeline through Airflow and Athena.
+Full write-up, including the honest caveat that the runbook was written after the cause was known: [docs/evals.md](docs/evals.md).
 
 ---
 
-## 6. Phases
+## What an answer looks like
 
-Each phase adds **one concept** on top of something that already works.
+```
+you> Why is the curated data stuck at 2026-09-30?
+  → search_past_incidents(query='curated data stuck not advancing')
+  → search_runbooks(query='curated data missing likely causes how to check', k=4)
+  → get_registered_partitions(table='raw_weather')
+  → get_table_schema(table='raw_weather')
+  → run_query(sql="SELECT r.date, r.raw_rows, COALESCE(c.cur_rows,0) ...")
+  ... (15 tool calls)
 
-### Phase 0 — Setup and recon
-- **What:** Repo, Python env, `.env`. Confirm Airflow and Athena are reachable from the Mac with read-only credentials.
-- **Why:** Most "agent bugs" are really network and auth problems. Fix those before any AI is involved.
-- **Done when:** A `curl` to the Airflow API and an AWS CLI Athena query both work with least-privilege credentials.
+  ┌─ DIAGNOSIS ──────────────────────────────────────────────────
+  │ category=silent_data_gap  confidence=high
+  │ root cause: raw tables use Athena partition projection, but the Glue job reads
+  │   via the catalog, where partitions stop at 2026-09-30 ...
+  │ ✓ [get_registered_partitions]: "raw_weather: 4 registered partitions (2026-09-27 to 2026-09-30)"
+  │ ✓ [get_table_schema]: "'projection.date.range': '2026-09-27,NOW'"
+  │ ✓ [run_query]: "2026-10-02 | 808 | 0"
+  │ ✓ [get_task_log]: "AWS Glue Job: curate-daily status: SUCCEEDED. Run Id: jr_58c9..."
+  │ grounding: 9/9 quotes verified
+  │ runbooks: runbook_curated_data_missing.md, runbook_backfill.md
+  │ unverified: Glue CloudWatch log ("0 raw -> 0 curated") not accessible
+  │ memory: incident memory: 2026-10-06:silent_data_gap
+  └──────────────────────────────────────────────────────────────
+```
 
-### Phase 1 — LangGraph + tools
-- **What:** One agent with plain Python tools for Airflow (DAG runs, task logs).
-- **Why:** Learn the core agent loop (LLM → tool → result → LLM) before adding anything else.
-- **Done when:** "When did the weather DAG last succeed?" is answered correctly.
+Each ✓ means code found that exact text in that tool's output. The `unverified` list separates what the agent observed from what it couldn't check.
 
-### Phase 2 — MCP
-- **What:** Move the Airflow tools into an Airflow MCP server; the agent loads them over MCP.
-- **Why:** Separate *deciding* (agent) from *doing* (server). Any MCP client can now reuse the tools.
-- **Done when:** Phase 1 answers still work, and the tools are visible in MCP Inspector.
+---
 
-### Phase 3 — Athena MCP + guardrails
-- **What:** Athena MCP server (SELECT-only, read-only IAM), plus input and output guardrails.
-- **Why:** The agent now touches real data, so safety must be enforced in code, not prompts.
-- **Done when:** Row-count questions work, `DROP TABLE` is blocked, and tests cover malicious SQL.
+## Architecture
 
-### Phase 4 — RAG
-- **What:** Write runbooks in `knowledge/`, ingest them into Chroma, add `search_runbooks`.
-- **Why:** The agent learns *how this team fixes things*, not just what the logs say.
-- **Done when:** The diagnosis cites the correct runbook.
+```
+ user (terminal chat)
+        │
+        ▼
+┌──────────────────────── LangGraph ────────────────────────┐
+│                                                           │
+│  input_guardrail (Haiku) ── off-topic / unsafe ─► refusal │
+│        │ question / incident                              │
+│        ▼                                                  │
+│      agent (Opus) ◄──► tools ──── MCP ────┐               │
+│        │ done                             │               │
+│        ▼ (incidents only)                 │               │
+│      diagnose → verify_diagnosis → remember               │
+│      (typed)    (grounding check)  (incident memory)      │
+│                                                           │
+│  checkpointer: conversations in SQLite (resumable)        │
+└───────────────────────────────────────────┼───────────────┘
+                                            │
+        ┌───────────────────────────────────┼─────────────────────┐
+        ▼                                   ▼                     ▼
+ Airflow MCP server                Athena MCP server       Knowledge MCP server
+ list_dags, get_recent_dag_runs,   list_tables, get_table_ search_runbooks,
+ get_task_instances, get_task_log  schema, get_table_      search_past_incidents,
+ (Airflow Viewer role)             versions, get_registered record_incident
+        │                          _partitions, run_query   (graph-only)
+        ▼                          (SQL guardrail, read-       │
+ Airflow 3 REST API                only IAM)                   ▼
+ (via SSH tunnel)                        │                  Chroma: runbooks +
+                                         ▼                  past incidents
+                                  Athena + Glue catalog
+```
 
-### Phase 5 — Memory + diagnosis
-- **What:** Checkpointer for follow-up questions, long-term store of past incidents, structured `Diagnosis` output.
-- **Why:** Real on-call needs context: "Has this happened before?" and "What about yesterday?"
-- **Done when:** Follow-ups work across turns, and a repeated incident is recognized.
+- **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
+- **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).
 
-### Phase 6 — Evals
-- **What:** Break the pipeline on purpose in 6 ways and score the agent.
-- **Why:** Proof that it works. A score table is what makes this credible.
-- **Done when:** The results table below is filled in.
+## Guardrails: defense in depth
 
-| # | Injected failure | Expected diagnosis | Result |
+| Layer | Stops | Enforced by |
+|---|---|---|
+| Input guardrail | Off-topic requests, prompt injection, requests for secrets or destruction | Claude Haiku classifier, fixed refusal text, fails closed |
+| Read-only credentials | Any change to Airflow or AWS | Airflow Viewer role; IAM policy with no write access to data ([infra/iam](infra/iam/pipeline-copilot-readonly.json)) |
+| SQL guardrail | `DROP`, stacked statements, `WITH ... INSERT`, other databases, unknown tables, huge results | `sqlglot` parse-tree checks, forced `LIMIT` ([21 tests](tests/test_sql_guard.py)) |
+| Cost limits | Runaway queries | Athena workgroup 1 GB scan cap, row and log-size caps, recursion limit |
+| Output guardrail | Made-up evidence | Every evidence quote must appear verbatim in a real tool output, or confidence is lowered ([10 tests](tests/test_output_guardrail.py)) |
+| Memory hygiene | Poisoned memory | Only verified diagnoses are saved, by the graph; the model can't write memory |
+
+---
+
+## Evaluation
+
+Seven failures injected into a **simulated** pipeline: fake tools with the real tool schemas, the real SQL guardrail, real SQL in DuckDB and a fixed clock. They run through the real agent graph and are scored by code (category, required facts, no red herrings, grounding). Four scenarios deliberately have **no runbook**.
+
+| Scenario | Expected | Result | Confidence |
 |---|---|---|---|
-| 1 | Upstream field renamed | Schema drift → zero-row load | |
-| 2 | Null spike in a column | Bad upstream data | |
-| 3 | Upstream API timeout | Transient failure → retry | |
-| 4 | Duplicate rows | Missing dedupe / replay | |
-| 5 | Bad deploy (code bug) | Task error in logs | |
-| 6 | Stuck / long-running task | Hang → clear task | |
+| Upstream field rename (magnitude NULL) | schema_drift | ✓ | medium |
+| One station's sensor failing (no runbook) | bad_upstream_data | ✓ | medium |
+| S3 timeout, retry succeeded (no runbook) | transient_failure | ✓ | high |
+| Replayed rows in raw (no runbook) | duplicates | ✓ | high |
+| Bad Glue deploy (`temp_c` column) | code_bug | ✓ | high |
+| Task running 3.5h vs a 10-minute limit (no runbook) | stuck_task | ✓ | high |
+| Nothing wrong (false-alarm check) | no_problem_found | ✓ | high |
 
-**Metrics:** diagnosis accuracy, evidence correctness, time-to-diagnosis.
+**7/7 correct, 7/7 grounded, 0 confidently wrong, about $0.21 per investigation** (agent loop).
 
----
-
-## 7. Repo structure (grows phase by phase)
-
-```
-pipeline-copilot/
-├── README.md
-├── pyproject.toml
-├── .env.example
-├── src/pipeline_copilot/
-│   ├── graph.py          # LangGraph wiring
-│   ├── state.py          # graph state
-│   ├── guardrails.py     # input / output checks
-│   ├── models.py         # Diagnosis, Evidence
-│   └── config.py
-├── mcp_servers/
-│   ├── airflow_server.py
-│   └── athena_server.py
-├── knowledge/            # runbooks + table notes (markdown)
-├── scripts/ingest_knowledge.py
-├── evals/
-└── tests/
-```
+Caveats: a single run per scenario, scenarios written by the agent's author, and keyword-based scoring. The suite also shows the main weakness: **healthy or "nothing to do" cases still take 17–18 tool calls**, so the agent over-investigates.
 
 ---
 
-## 8. Environment variables (`.env.example`)
+## Tech stack
+
+| | |
+|---|---|
+| Agent | LangGraph, `langchain-anthropic`, Claude Opus 5.5 (agent + diagnosis), Claude Haiku 4.5 (guardrail) |
+| Tools | MCP Python SDK (FastMCP), `langchain-mcp-adapters`, stdio transport |
+| Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
+| RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |
+| Testing | pytest (43 tests), a simulated eval suite with DuckDB, LangSmith tracing |
+| Tooling | Python 3.12, `uv` |
+
+## Repository layout
 
 ```
-LLM_PROVIDER=
-LLM_MODEL=
-LLM_API_KEY=
-
-AIRFLOW_BASE_URL=http://localhost:8080   # via SSH tunnel
-AIRFLOW_USERNAME=                        # Viewer role only
-AIRFLOW_PASSWORD=
-
-AWS_REGION=
-AWS_PROFILE=                             # read-only profile
-ATHENA_WORKGROUP=
-ATHENA_DATABASE=
-ATHENA_OUTPUT_S3=
-
-CHROMA_PATH=./.chroma
-MEMORY_DB=./memory.sqlite
+src/pipeline_copilot/
+  graph.py, graph_state.py   LangGraph wiring and state
+  guardrails.py              input guardrail (Haiku)
+  output_guardrail.py        evidence grounding check
+  sql_guard.py               SQL guardrail
+  models.py                  Diagnosis / Evidence
+  knowledge_base.py          chunking, Chroma index, incident memory
+  airflow_client.py, athena_client.py
+  mcp_servers/               airflow_server, athena_server, knowledge_server
+  cli.py                     terminal chat
+knowledge/                   pipeline overview + runbooks (the RAG source)
+evals/                       simulated world, fake tools, scenarios, runner
+tests/                       SQL guard, retrieval, grounding tests
+infra/iam/                   read-only IAM policy
+docs/                        recon notes, eval log
 ```
-
-Secrets live only in `.env`, which is git-ignored.
 
 ---
 
-## 9. Future work
+## Running it
 
-- Execute approved fixes (LangGraph `interrupt()` for human approval)
-- Auto-trigger from Airflow `on_failure_callback`
-- Open GitHub PRs for code fixes
-- Multi-agent fan-out (logs, data and runbooks investigated in parallel)
-- Web UI for incident reports
+**Prerequisites:** Python 3.12+ and [uv](https://docs.astral.sh/uv/); an Anthropic API key; for live use, read-only access to an Airflow 3 instance and to Athena (see [docs/recon.md](docs/recon.md)). The tests and evals need **no** Airflow or AWS access.
+
+```bash
+uv sync
+cp .env.example .env                              # fill in keys and passwords
+uv run python -m pipeline_copilot.knowledge_base  # build the runbook index
+```
+
+```bash
+# Chat (Airflow reached through an SSH tunnel)
+ssh -N -o ServerAliveInterval=30 -L 8080:localhost:8081 ubuntu@<vm-ip>
+uv run pipeline-copilot                           # new conversation
+uv run pipeline-copilot --thread <id>             # resume one
+
+# Tests (no network needed)
+uv run pytest
+
+# Eval suite (costs ~$1.50 in Claude usage)
+uv run python -m evals.run
+uv run python -m evals.run --only stuck_task --repeat 3
+```
 
 ---
 
-## 10. Working agreement (for Claude in VS Code)
+## Limitations and future work
 
-- **I write all the code.** Claude guides with steps and snippets, with comments explaining *why*.
-- Every phase starts with a plain-language summary: **what** we're building and **why**.
-- One phase at a time. Wait for my results before moving on.
-- When I'm confused, slow down and use small concrete examples.
-- I commit and push myself. No Claude attribution (`Co-Authored-By` etc.) in commits or PRs.
-- Never put secrets in code or commits.
+- **Read-only by design:** it diagnoses and suggests fixes; a human applies them.
+- It can't see container logs or Glue CloudWatch logs, so failures inside a stream job or Glue script are visible only through their effects.
+- Over-investigation on simple cases (see Evaluation).
+- **Next:** a web UI (in progress), auto-triggering from Airflow failure callbacks, and human-approved remediation (LangGraph `interrupt()`).
