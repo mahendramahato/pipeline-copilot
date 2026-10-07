@@ -1,0 +1,314 @@
+{
+  "slug": "curation-silent-failure",
+  "title": "The real bug: curated data silently stopped for 4 days",
+  "summary": "Curated tables (curated_weather, curated_seismic) have no rows after 2026-09-30 even though raw data exists through 2026-10-05 and every Airflow/Glue run reports success.",
+  "recorded": "2026-10-06T17:32:36+00:00",
+  "order": 1,
+  "turns": [
+    {
+      "question": "why is the curated data stuck at 2026-09-30",
+      "events": [
+        {
+          "type": "tool_call",
+          "name": "get_current_time",
+          "args": {},
+          "server": "agent"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_recent_dag_runs",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "limit": 5
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_call",
+          "name": "search_runbooks",
+          "args": {
+            "query": "curated data stuck not advancing"
+          },
+          "server": "knowledge"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_current_time",
+          "chars": 25
+        },
+        {
+          "type": "tool_result",
+          "name": "get_recent_dag_runs",
+          "chars": 838
+        },
+        {
+          "type": "tool_result",
+          "name": "search_runbooks",
+          "chars": 1037
+        },
+        {
+          "type": "tool_call",
+          "name": "search_runbooks",
+          "args": {
+            "query": "curated data missing likely causes how to check",
+            "k": 4
+          },
+          "server": "knowledge"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_task_instances",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "run_id": "scheduled__2026-10-06T00:30:00+00:00"
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_call",
+          "name": "list_tables",
+          "args": {},
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "search_runbooks",
+          "chars": 1596
+        },
+        {
+          "type": "tool_result",
+          "name": "get_task_instances",
+          "chars": 296
+        },
+        {
+          "type": "tool_result",
+          "name": "list_tables",
+          "chars": 366
+        },
+        {
+          "type": "tool_call",
+          "name": "get_task_log",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "run_id": "scheduled__2026-10-06T00:30:00+00:00",
+            "task_id": "curate_day",
+            "try_number": 1
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "raw_weather"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "raw_seismic"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_registered_partitions",
+          "args": {
+            "table": "raw_weather"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_registered_partitions",
+          "args": {
+            "table": "raw_seismic"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_task_log",
+          "chars": 3247
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 655
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 535
+        },
+        {
+          "type": "tool_result",
+          "name": "get_registered_partitions",
+          "chars": 110
+        },
+        {
+          "type": "tool_result",
+          "name": "get_registered_partitions",
+          "chars": 110
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "curated_weather"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT date, COUNT(*) AS n FROM raw_weather WHERE date >= '2026-09-28' GROUP BY date ORDER BY date"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT date, COUNT(*) AS n FROM raw_seismic WHERE date >= '2026-09-28' GROUP BY date ORDER BY date"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 659
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 184
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 167
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT 'weather' t, date, COUNT(*) n FROM curated_weather WHERE date >= '2026-09-28' GROUP BY date UNION ALL SELECT 'seismic', date, COUNT(*) FROM curated_seismic WHERE date >= '2026-09-28' GROUP BY date ORDER BY 1, 2"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_task_log",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "run_id": "scheduled__2026-10-06T00:30:00+00:00",
+            "task_id": "target_date",
+            "try_number": 1
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 197
+        },
+        {
+          "type": "tool_result",
+          "name": "get_task_log",
+          "chars": 398
+        },
+        {
+          "type": "answer",
+          "text": "**Short answer:** The Glue job reads raw data through the Glue Data Catalog, and the catalog has no raw partitions after 2026-09-30. So every day since then, the job has run on empty input and \"succeeded\" without writing anything. Nothing alerts on this, so it failed silently. This matches **Cause 1** in `runbook_curated_data_missing.md`.\n\n**Evidence (now 2026-10-06 17:33 UTC):**\n\n1. **Airflow shows every run as successful.** The last 5 runs of `daily_lake_maintenance` all succeeded, from `manual__2026-10-02T18:01:13\u2026` through `scheduled__2026-10-06T00:30:00+00:00`. In the 10-06 run, `target_date` returned `2026-10-05`, which is correct, and the Glue job behind `curate_day` (`jr_58c916fe\u2026`) reported SUCCEEDED. Airflow sees no problem.\n2. **The raw data is there.** Athena reads the raw tables through partition projection (range `2026-09-27,NOW`), so it sees every date:\n   - raw_weather: 10-01=60, 10-02=808, 10-03=816, 10-04=839, 10-05=814 rows\n   - raw_seismic: 10-01=20, 10-02=316, 10-03=279, 10-04=351, 10-05=362 rows\n3. **The curated tables stop at 09-30.** curated_weather and curated_seismic have 0 rows for 10-01 onward.\n4. **The catalog stops at 09-30 too.** `get_registered_partitions` shows only 2026-09-27 to 2026-09-30 for both `raw_weather` and `raw_seismic`. The runbook says that if the registered raw partitions stop just before the missing dates, Cause 1 is confirmed. They stop exactly there.\n\n**Why:** Projection only helps Athena. `sync_to_s3` writes new date folders to S3, but nothing adds them to the catalog. The Glue job looks up partitions in the catalog, finds none for the target date, and processes 0 rows. The raw table definitions were last updated 2026-09-30 22:42 UTC, which fits the cutoff. That suggests a change around then, possibly switching to projection, ended whatever had been adding partitions. That's my inference; I didn't verify it.\n\n**I couldn't check:** the Glue job's CloudWatch line `X raw -> Y curated`, where X = 0 would confirm the empty input directly. I don't have access to those logs. It's worth a look to fully confirm.\n\n**Fix (from `runbook_curated_data_missing.md > Fix`; I can't make changes myself):**\n1. Make the job see new partitions. Either:\n   - add a step after `sync_to_s3` that registers them (`ALTER TABLE \u2026 ADD PARTITION` or `MSCK REPAIR TABLE` on raw_weather and raw_seismic), or\n   - change the Glue job to read the S3 path for the date directly.\n2. Backfill 2026-10-01 through 2026-10-05 (see `runbook_backfill.md`).\n3. Prevent a repeat: add a task after `curate_day` that fails when curated rows for `target_date` = 0 but raw rows > 0.\n\n**Side note:** curated_seismic has fewer rows than raw even on dates that worked (09-30: 72 vs 132). That's probably deduplication by `event_id`/`updated_at` and not part of this problem, but I haven't verified it."
+        },
+        {
+          "type": "diagnosis",
+          "diagnosis": {
+            "summary": "Curated tables (curated_weather, curated_seismic) have no rows after 2026-09-30 even though raw data exists through 2026-10-05 and every Airflow/Glue run reports success.",
+            "category": "silent_data_gap",
+            "root_cause": "The raw tables use partition projection, so Athena sees all dates, but only partitions 2026-09-27 to 2026-09-30 are registered in the Glue Data Catalog. Per runbook Cause 1, the Glue curate job reads raw data through the catalog. It finds no partitions for dates after 09-30, processes empty input, and still reports SUCCEEDED. Nothing registers new partitions after sync_to_s3. The raw table definitions were last updated 2026-09-30, which fits a change around then, but this link is inferred.",
+            "evidence": [
+              {
+                "tool": "get_registered_partitions",
+                "quote": "raw_weather: 4 registered partitions (2026-09-27 to 2026-09-30)",
+                "meaning": "The catalog has no raw_weather partitions after 2026-09-30.",
+                "grounded": true
+              },
+              {
+                "tool": "get_registered_partitions",
+                "quote": "raw_seismic: 4 registered partitions (2026-09-27 to 2026-09-30)",
+                "meaning": "The catalog has no raw_seismic partitions after 2026-09-30.",
+                "grounded": true
+              },
+              {
+                "tool": "get_table_schema",
+                "quote": "'projection.date.range': '2026-09-27,NOW'",
+                "meaning": "Partition projection lets Athena see all dates even though the catalog is not updated.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "2026-10-05 | 814",
+                "meaning": "raw_weather has rows for recent dates.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "2026-10-05 | 362",
+                "meaning": "raw_seismic has rows for recent dates.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "weather | 2026-09-30 | 284",
+                "meaning": "The latest curated date is 2026-09-30, and no rows exist for 10-01 onward.",
+                "grounded": true
+              },
+              {
+                "tool": "get_task_log",
+                "quote": "AWS Glue Job: curate-daily status: SUCCEEDED. Run Id: jr_58c916fe13f7fcf60f5ebec2f09170145143912dda065a2e7e756f08b05de273",
+                "meaning": "The Glue job reports success even though it wrote nothing for the target date.",
+                "grounded": true
+              },
+              {
+                "tool": "get_task_log",
+                "quote": "Done. Returned value was: 2026-10-05",
+                "meaning": "target_date computed the correct date, so date logic is not the issue.",
+                "grounded": true
+              },
+              {
+                "tool": "get_table_schema",
+                "quote": "raw_weather (type=EXTERNAL_TABLE, updated=2026-09-30 16:42:45-06:00)",
+                "meaning": "The raw table definition changed at the time the gap starts.",
+                "grounded": true
+              }
+            ],
+            "impact": "curated_weather and curated_seismic are missing all data for 2026-10-01 through 2026-10-05 (raw has 60/808/816/839/814 weather rows and 20/316/279/351/362 seismic rows for those dates). curated_weather_daily and the alerts view were not checked but are likely affected downstream. No alerts fired.",
+            "suggested_fix": "Per runbook_curated_data_missing.md: (1) make the Glue job see new partitions. Either add a step after sync_to_s3 that registers partitions (ALTER TABLE ADD PARTITION or MSCK REPAIR TABLE on raw_weather and raw_seismic), or change the Glue job to read the S3 date path directly. (2) Backfill 2026-10-01 through 2026-10-05 per runbook_backfill.md. (3) Add a DAG task after curate_day that fails when curated rows for target_date = 0 while raw rows > 0.",
+            "runbooks_used": [
+              "runbook_curated_data_missing.md",
+              "runbook_backfill.md"
+            ],
+            "unverified": [
+              "The Glue job CloudWatch output line 'X raw -> Y curated' showing X = 0 was not checked.",
+              "That the Glue job reads through the catalog rather than S3 paths was taken from the runbook, not confirmed from the job code.",
+              "What change on 2026-09-30 stopped partition registration.",
+              "Whether curated_weather_daily and the alerts view are affected.",
+              "Whether lower curated_seismic counts on working dates (e.g. 72 vs 132 on 09-30) come from deduplication."
+            ],
+            "confidence": "high",
+            "grounding": {
+              "checked": 9,
+              "ungrounded": 0,
+              "confidence_lowered_from": null
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

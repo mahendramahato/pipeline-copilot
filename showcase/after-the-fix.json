@@ -1,0 +1,278 @@
+{
+  "slug": "after-the-fix",
+  "title": "After the fix: is the curated data up to date?",
+  "summary": "No problem found: curated tables contain 2026-10-06 (the expected D-1) with row counts matching raw (weather) and distinct event counts (seismic).",
+  "recorded": "2026-10-07T00:56:34+00:00",
+  "order": 2,
+  "turns": [
+    {
+      "question": "Is the curated data up to date",
+      "events": [
+        {
+          "type": "tool_call",
+          "name": "get_current_time",
+          "args": {},
+          "server": "agent"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_recent_dag_runs",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "limit": 3
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_current_time",
+          "chars": 25
+        },
+        {
+          "type": "tool_result",
+          "name": "get_recent_dag_runs",
+          "chars": 508
+        },
+        {
+          "type": "tool_call",
+          "name": "get_registered_partitions",
+          "args": {
+            "table": "curated_weather"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_registered_partitions",
+          "args": {
+            "table": "curated_seismic"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_task_instances",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "run_id": "scheduled__2026-10-07T00:30:00+00:00"
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_registered_partitions",
+          "chars": 57
+        },
+        {
+          "type": "tool_result",
+          "name": "get_registered_partitions",
+          "chars": 57
+        },
+        {
+          "type": "tool_result",
+          "name": "get_task_instances",
+          "chars": 294
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "curated_weather"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "curated_seismic"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "search_runbooks",
+          "args": {
+            "query": "curated tables no partitions registered in catalog"
+          },
+          "server": "knowledge"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 659
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 539
+        },
+        {
+          "type": "tool_result",
+          "name": "search_runbooks",
+          "chars": 1605
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT 'cw' t, date, COUNT(*) n FROM curated_weather WHERE date >= '2026-10-03' GROUP BY date UNION ALL SELECT 'cs', date, COUNT(*) FROM curated_seismic WHERE date >= '2026-10-03' GROUP BY date UNION ALL SELECT 'rw', date, COUNT(*) FROM raw_weather WHERE date >= '2026-10-03' GROUP BY date UNION ALL SELECT 'rs', date, COUNT(*) FROM raw_seismic WHERE date >= '2026-10-03' GROUP BY date ORDER BY 1, 2"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_task_log",
+          "args": {
+            "dag_id": "daily_lake_maintenance",
+            "run_id": "scheduled__2026-10-07T00:30:00+00:00",
+            "task_id": "target_date",
+            "try_number": 1
+          },
+          "server": "airflow"
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 432
+        },
+        {
+          "type": "tool_result",
+          "name": "get_task_log",
+          "chars": 398
+        },
+        {
+          "type": "tool_call",
+          "name": "search_runbooks",
+          "args": {
+            "query": "curated_seismic fewer rows than raw_seismic dedup",
+            "k": 2
+          },
+          "server": "knowledge"
+        },
+        {
+          "type": "tool_result",
+          "name": "search_runbooks",
+          "chars": 1277
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT date, COUNT(DISTINCT event_id) n FROM raw_seismic WHERE date BETWEEN '2026-10-03' AND '2026-10-06' GROUP BY date ORDER BY date"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 102
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT date, COUNT(*) n FROM curated_weather_daily WHERE date >= '2026-10-04' GROUP BY date ORDER BY date"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 79
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT COUNT(DISTINCT station_id) FROM raw_weather WHERE date = '2026-10-06'"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 33
+        },
+        {
+          "type": "answer",
+          "text": "Yes, the curated data is up to date. It's 00:56 UTC on 2026-10-07, so curated should contain 2026-10-06, and it does.\n\n**Airflow**\n- The scheduled 00:30 run `scheduled__2026-10-07T00:30:00+00:00` succeeded (00:30:00 to 00:32:07). All four tasks succeeded on the first try.\n- The `target_date` log shows it curated **2026-10-06**. That matches the expected D-1 (pipeline_overview.md > What normal looks like).\n\n**Data check, raw vs curated rows per day**\n\n| date | raw_weather | curated_weather | raw_seismic (all rows / distinct events) | curated_seismic |\n|---|---|---|---|---|\n| 10-04 | 839 | 839 | 351 / 200 | 200 |\n| 10-05 | 814 | 814 | 362 / 183 | 183 |\n| 10-06 | 846 | 846 | 409 / 196 | 196 |\n\n- **Weather:** curated matches raw exactly. Deduplication removed nothing, which is fine.\n- **Seismic:** curated is smaller than raw because raw keeps every USGS revision of a quake and curated keeps one row per event. Curated equals the number of distinct events every day, which is what the docs say it should be (pipeline_overview.md > Tables).\n- **curated_weather_daily:** 5 rows for 10-06, one for each of the 5 stations in raw_weather that day.\n- raw has a few rows for 10-07 (10 weather, 2 seismic). That partial day will be curated in tomorrow's run.\n\n**One thing that looks wrong but isn't:** the Glue catalog has no registered partitions for the curated tables. That's expected. The tables use partition projection, and since the 2026-09-30 fix, registered partitions no longer matter for curation (runbook_curated_data_missing.md > History: the 2026-09-30 silent failure)."
+        },
+        {
+          "type": "diagnosis",
+          "diagnosis": {
+            "summary": "No problem found: curated tables contain 2026-10-06 (the expected D-1) with row counts matching raw (weather) and distinct event counts (seismic).",
+            "category": "no_problem_found",
+            "root_cause": "No fault. The 00:30 scheduled run on 2026-10-07 succeeded and curated target date 2026-10-06. curated_weather counts equal raw_weather counts. curated_seismic counts equal distinct event_id counts in raw_seismic, which is the documented behavior. The missing catalog partitions for the curated tables are expected because the tables use partition projection and curation no longer depends on registered partitions.",
+            "evidence": [
+              {
+                "tool": "get_recent_dag_runs",
+                "quote": "run_id=scheduled__2026-10-07T00:30:00+00:00 | state=success",
+                "meaning": "The latest scheduled maintenance run succeeded.",
+                "grounded": true
+              },
+              {
+                "tool": "get_task_log",
+                "quote": "Done. Returned value was: 2026-10-06",
+                "meaning": "The run curated 2026-10-06, which is the expected D-1.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "cw | 2026-10-06 | 846",
+                "meaning": "curated_weather has 846 rows for 2026-10-06.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "rw | 2026-10-06 | 846",
+                "meaning": "raw_weather also has 846 rows for 2026-10-06, so curated matches raw.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "cs | 2026-10-06 | 196",
+                "meaning": "curated_seismic has 196 rows for 2026-10-06.",
+                "grounded": true
+              },
+              {
+                "tool": "run_query",
+                "quote": "2026-10-06 | 196",
+                "meaning": "raw_seismic has 196 distinct event_ids on 2026-10-06, which matches curated as documented.",
+                "grounded": true
+              },
+              {
+                "tool": "search_runbooks",
+                "quote": "Registered catalog partitions are NO LONGER relevant to curation: they stopping at\n2026-09-30 is expected, not a problem.",
+                "meaning": "The empty catalog partitions are expected and not a problem.",
+                "grounded": true
+              },
+              {
+                "tool": "get_table_schema",
+                "quote": "'projection.enabled': 'true', 'projection.date.range': '2026-09-27,NOW'",
+                "meaning": "The curated tables use partition projection, so registered partitions are not needed for Athena.",
+                "grounded": true
+              }
+            ],
+            "impact": "None. curated_weather, curated_seismic and curated_weather_daily are current through 2026-10-06. The partial raw rows for 2026-10-07 (10 weather, 2 seismic) will be curated in the next run.",
+            "suggested_fix": "No action needed. Continue normal monitoring.",
+            "runbooks_used": [
+              "runbook_curated_data_missing.md",
+              "pipeline_overview.md"
+            ],
+            "unverified": [
+              "The Glue job CloudWatch output log ('X raw -> Y curated') is not visible to the agent's tools.",
+              "The curate_day task log was not inspected directly. Success is inferred from task state and the row counts."
+            ],
+            "confidence": "high",
+            "grounding": {
+              "checked": 8,
+              "ungrounded": 0,
+              "confidence_lowered_from": null
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "slug": "earthquake-count",
+  "title": "A data question: earthquakes recorded on 2026-10-05",
+  "summary": "**183 earthquakes** were recorded on 2026-10-05.\n\nI counted them in Athena for partition `date = '2026-10-05'`:\n\n| Layer | Rows | Distinct `event_id` | Time span |\n|---|---|---|---|\n| `curated_seismic\u2026",
+  "recorded": "2026-10-07T01:04:42+00:00",
+  "order": 3,
+  "turns": [
+    {
+      "question": "How many earthquakes were recorded on 2026-10-05?",
+      "events": [
+        {
+          "type": "tool_call",
+          "name": "get_current_time",
+          "args": {},
+          "server": "agent"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "curated_seismic"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_call",
+          "name": "get_table_schema",
+          "args": {
+            "table": "raw_seismic"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "get_current_time",
+          "chars": 25
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 539
+        },
+        {
+          "type": "tool_result",
+          "name": "get_table_schema",
+          "chars": 535
+        },
+        {
+          "type": "tool_call",
+          "name": "run_query",
+          "args": {
+            "sql": "SELECT 'curated' AS layer, COUNT(*) AS n_rows, COUNT(DISTINCT event_id) AS n_events, MIN(event_time) AS min_t, MAX(event_time) AS max_t FROM curated_seismic WHERE date = '2026-10-05'\nUNION ALL\nSELECT 'raw', COUNT(*), COUNT(DISTINCT event_id), MIN(event_time), MAX(event_time) FROM raw_seismic WHERE date = '2026-10-05'"
+          },
+          "server": "athena"
+        },
+        {
+          "type": "tool_result",
+          "name": "run_query",
+          "chars": 207
+        },
+        {
+          "type": "answer",
+          "text": "**183 earthquakes** were recorded on 2026-10-05.\n\nI counted them in Athena for partition `date = '2026-10-05'`:\n\n| Layer | Rows | Distinct `event_id` | Time span |\n|---|---|---|---|\n| `curated_seismic` | 183 | **183** | 00:20:54 \u2013 23:58:31 |\n| `raw_seismic` | 362 | 183 | 00:20:54 \u2013 23:58:31 |\n\n- The raw and curated tables agree: both have the same 183 distinct events.\n- Raw has 362 rows because some events appear more than once, which looks like later updates to the same event (raw has an `updated_at` column). Curated keeps one row per event, so 183 is the right count.\n- The events run from just after midnight to just before midnight UTC, so the day looks fully loaded. It's now 2026-10-07 01:04 UTC, so this day should already be in curated anyway.\n\nIf you only want the bigger ones, I can split the count by magnitude or by `is_significant`."
+        }
+      ]
+    }
+  ]
+}

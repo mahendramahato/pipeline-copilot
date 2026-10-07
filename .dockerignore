@@ -1,0 +1,23 @@
+# Secrets and local state never go into the image
+.env
+.env.*
+!.env.deploy.example
+*.sqlite
+*.sqlite-*
+.chroma/
+pwd.txt
+
+# Rebuilt inside the image
+.venv/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+
+# Not needed at runtime
+.git/
+evals/
+tests/
+docs/
+infra/
+.vscode/
+.DS_Store

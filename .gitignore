@@ -21,3 +21,6 @@ evals/results/*.json
 # frontend
 frontend/node_modules/
 frontend/dist/
+
+# hosted settings (secrets)
+.env.deploy

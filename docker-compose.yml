@@ -1,0 +1,29 @@
+# Pipeline Copilot on the Oracle VM, next to the weather-seismic pipeline.
+#
+# It joins that project's Docker network, so Airflow is reachable as
+# airflow:8080 (no SSH tunnel) and the pipeline's Caddy container can serve it
+# over HTTPS on its own subdomain. No ports are published here.
+#
+#   docker compose up -d --build
+services:
+  copilot:
+    build: .
+    container_name: copilot
+    restart: unless-stopped
+    env_file: .env.deploy
+    volumes:
+      # The MCP servers run as subprocesses and read their settings from this file
+      - ./.env.deploy:/app/.env:ro
+      # ONLY the read-only pipeline-copilot AWS profile, never the VM's own keys
+      - ~/.aws-copilot:/home/app/.aws:ro
+      # Conversations + Chroma (runbook index and incident memory) survive restarts
+      - copilot-data:/data
+    networks: [pipeline]
+
+networks:
+  pipeline:
+    external: true
+    name: weather-seismic-pipeline_default
+
+volumes:
+  copilot-data:

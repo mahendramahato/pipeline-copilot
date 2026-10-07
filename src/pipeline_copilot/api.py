@@ -2,24 +2,26 @@
 
     uv run pipeline-copilot-api        # http://127.0.0.1:8000
 
+Public: the showcase (saved, reviewed investigations, read-only).
+Owner only (password login): live chat and the saved conversation list.
 POST /api/chat streams the run as Server-Sent Events (one JSON event per step).
-Binds to localhost only: there is no login, and the agent can read the pipeline's
-data and logs.
 """
 import asyncio
 import json
+import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from pipeline_copilot import auth
 from pipeline_copilot.config import PROJECT_ROOT
 from pipeline_copilot.runtime import list_threads, load_thread, new_thread_id, open_agent, run_turn
+from pipeline_copilot.showcase import get_showcase, list_showcase
 
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
@@ -44,26 +46,82 @@ class ChatRequest(BaseModel):
     thread_id: str | None = Field(default=None, pattern=r"^chat-[0-9-]+$")
 
 
+class LoginRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
 def _sse(event: dict) -> str:
     return f"data: {json.dumps(event, default=str)}\n\n"
 
 
+def _is_owner(request: Request) -> bool:
+    # No password configured = local use: everything open (main() refuses a
+    # public bind in that case, so this never applies to a hosted instance).
+    return not auth.auth_enabled() or auth.is_valid_session(request.cookies.get(auth.COOKIE))
+
+
+# --- Guard for owner-only endpoints ---
+def require_owner(request: Request) -> None:
+    if not _is_owner(request):
+        raise HTTPException(401, "Sign in to use live mode.")
+
+
+# ---------------- public ----------------
+
 @app.get("/api/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     agent = app.state.agent
     servers: dict[str, list[str]] = {}
     for tool, server in agent.tool_servers.items():
         servers.setdefault(server, []).append(tool)
     return {"status": "ok", "model": agent.settings.llm_model,
-            "tools": [t.name for t in agent.tools], "servers": servers}
+            "tools": [t.name for t in agent.tools], "servers": servers,
+            "auth_enabled": auth.auth_enabled(), "owner": _is_owner(request)}
 
 
-@app.get("/api/threads")
+@app.get("/api/showcase")
+async def showcase_list() -> list[dict]:
+    return list_showcase()
+
+
+@app.get("/api/showcase/{slug}")
+async def showcase_item(slug: str) -> dict:
+    item = get_showcase(slug)
+    if item is None:
+        raise HTTPException(404, "No such showcase investigation")
+    return item
+
+
+@app.post("/api/login")
+async def login(req: LoginRequest, request: Request, response: Response) -> dict:
+    client = request.client.host if request.client else "unknown"
+    if auth.login_blocked(client):
+        raise HTTPException(429, "Too many attempts. Try again in 15 minutes.")
+    if not auth.check_password(client, req.password):
+        raise HTTPException(401, "Wrong password.")
+    response.set_cookie(
+        auth.COOKIE, auth.new_session_token(), max_age=auth.SESSION_SECONDS,
+        httponly=True,                              # page scripts can't read it
+        secure=request.url.scheme == "https",       # HTTPS-only when hosted
+        samesite="strict",                          # not sent on cross-site requests
+    )
+    return {"owner": True}
+
+
+@app.post("/api/logout")
+async def logout(response: Response) -> dict:
+    response.delete_cookie(auth.COOKIE)
+    return {"owner": False}
+
+
+# ---------------- owner only ----------------
+
+@app.get("/api/threads", dependencies=[Depends(require_owner)])
 async def threads() -> list[dict]:
     return await list_threads(app.state.agent)
 
 
-@app.get("/api/threads/{thread_id}")
+@app.get("/api/threads/{thread_id}", dependencies=[Depends(require_owner)])
 async def thread(thread_id: str) -> dict:
     data = await load_thread(app.state.agent, thread_id)
     if not data["turns"]:
@@ -71,7 +129,7 @@ async def thread(thread_id: str) -> dict:
     return data
 
 
-@app.post("/api/chat")
+@app.post("/api/chat", dependencies=[Depends(require_owner)])
 async def chat(req: ChatRequest) -> StreamingResponse:
     thread_id = req.thread_id or new_thread_id()
     lock = _thread_locks[thread_id]
@@ -98,7 +156,13 @@ if FRONTEND_DIST.exists():
 
 
 def main() -> None:
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    host = os.environ.get("COPILOT_HOST", "127.0.0.1")
+    # Fail safe: never serve beyond this machine without a password set
+    if host != "127.0.0.1" and not auth.auth_enabled():
+        raise SystemExit("Refusing to listen on a public interface without COPILOT_PASSWORD set.")
+    # proxy_headers: behind Caddy, trust X-Forwarded-Proto/For so HTTPS and the
+    # client IP (used for login rate limits) are seen correctly
+    uvicorn.run(app, host=host, port=8000, proxy_headers=True, forwarded_allow_ips="*")
 
 
 if __name__ == "__main__":

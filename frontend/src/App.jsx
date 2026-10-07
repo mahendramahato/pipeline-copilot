@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getHealth, getThread, getThreads, streamChat } from './api.js'
-import { Lock, Logo, Plus, Send } from './Icons.jsx'
+import { getHealth, getShowcase, getShowcaseList, getThread, getThreads, logout, streamChat } from './api.js'
+import { Book, Lock, Logo, Plus, Send } from './Icons.jsx'
+import LoginModal from './LoginModal.jsx'
 import Turn from './Turn.jsx'
+
+const REPO_URL = 'https://github.com/mahendramahato/pipeline-copilot'
 
 const EXAMPLES = [
   { tag: 'Freshness', q: 'Is the curated data up to date?' },
@@ -28,22 +31,43 @@ function groupThreads(threads) {
   return Object.entries(groups).filter(([, list]) => list.length)
 }
 
+const fmtDate = (iso) => new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+
 export default function App() {
   const [health, setHealth] = useState(null)
+  const [showcase, setShowcase] = useState([])
   const [threads, setThreads] = useState([])
-  const [threadId, setThreadId] = useState(null)   // null = a new conversation
+  // What the main panel shows: a recorded investigation, or the live chat
+  const [view, setView] = useState({ kind: 'home' })    // home | showcase | chat
+  const [threadId, setThreadId] = useState(null)         // live chat: null = new conversation
   const [turns, setTurns] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [showLogin, setShowLogin] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 
-  const refreshThreads = () => getThreads().then(setThreads).catch(() => {})
+  const owner = Boolean(health?.owner)
+
+  const refreshThreads = () => getThreads().then(setThreads).catch(() => setThreads([]))
+
+  async function loadSession() {
+    try {
+      const h = await getHealth()
+      setHealth(h)
+      if (h.owner) {
+        refreshThreads()
+        setView((v) => (v.kind === 'home' ? { kind: 'chat' } : v))
+      }
+    } catch (e) {
+      setError(`API not reachable: ${e.message}`)
+    }
+  }
 
   useEffect(() => {
-    getHealth().then(setHealth).catch((e) => setError(`API not reachable: ${e.message}`))
-    refreshThreads()
+    loadSession()
+    getShowcaseList().then(setShowcase).catch(() => {})
   }, [])
 
   // Keep the newest step in view while the agent works
@@ -63,13 +87,25 @@ export default function App() {
   }, [health])
 
   const groups = useMemo(() => groupThreads(threads), [threads])
-  const title = turns[0]?.question ?? 'New conversation'
+
+  async function openShowcase(slug) {
+    if (busy) return
+    setError(null)
+    try {
+      const item = await getShowcase(slug)
+      setView({ kind: 'showcase', item })
+      setTurns(item.turns)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
 
   async function openThread(id) {
     if (busy) return
     setError(null)
     try {
       const data = await getThread(id)
+      setView({ kind: 'chat' })
       setThreadId(id)
       setTurns(data.turns)
     } catch (e) {
@@ -79,10 +115,20 @@ export default function App() {
 
   function newChat() {
     if (busy) return
+    setView({ kind: 'chat' })
     setThreadId(null)
     setTurns([])
     setError(null)
-    inputRef.current?.focus()
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  async function signOut() {
+    await logout().catch(() => {})
+    setThreads([])
+    setThreadId(null)
+    setTurns([])
+    setView({ kind: 'home' })
+    loadSession()
   }
 
   const updateLastTurn = (fn) => setTurns((ts) => ts.map((t, i) => (i === ts.length - 1 ? fn(t) : t)))
@@ -112,10 +158,15 @@ export default function App() {
     }
   }
 
+  const title =
+    view.kind === 'showcase' ? view.item.title
+      : view.kind === 'chat' ? (turns[0]?.question ?? 'New conversation')
+        : 'Pipeline Copilot'
+
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="brand">
+        <div className="brand" onClick={() => !busy && setView(owner ? { kind: 'chat' } : { kind: 'home' })}>
           <Logo size={34} />
           <div>
             <div className="brand-name">Pipeline Copilot</div>
@@ -123,16 +174,34 @@ export default function App() {
           </div>
         </div>
 
-        <button className="new" onClick={newChat} disabled={busy}><Plus size={16} /> New conversation</button>
+        {owner && <button className="new" onClick={newChat} disabled={busy}><Plus size={16} /> New conversation</button>}
 
         <nav>
-          {groups.map(([label, list]) => (
+          {showcase.length > 0 && (
+            <div className="group">
+              <div className="group-label">Featured investigations</div>
+              {showcase.map((s) => (
+                <button
+                  key={s.slug}
+                  className={`thread featured ${view.kind === 'showcase' && view.item.slug === s.slug ? 'active' : ''}`}
+                  onClick={() => openShowcase(s.slug)}
+                  disabled={busy}
+                  title={s.title}
+                >
+                  <Book size={13} />
+                  <span className="thread-title">{s.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {owner && groups.map(([label, list]) => (
             <div key={label} className="group">
               <div className="group-label">{label}</div>
               {list.map((t) => (
                 <button
                   key={t.thread_id}
-                  className={`thread ${t.thread_id === threadId ? 'active' : ''}`}
+                  className={`thread ${view.kind === 'chat' && t.thread_id === threadId ? 'active' : ''}`}
                   onClick={() => openThread(t.thread_id)}
                   disabled={busy}
                   title={t.thread_id}
@@ -152,7 +221,7 @@ export default function App() {
         <div className="status-card">
           <div className="status-row">
             <span className={`status-dot ${health ? 'on' : 'off'}`} />
-            {health ? 'Connected' : 'API offline'}
+            {health ? (owner ? 'Live · signed in' : 'Online') : 'API offline'}
             {health && <span className="model">{health.model}</span>}
           </div>
           {health && (
@@ -163,17 +232,55 @@ export default function App() {
             </div>
           )}
           <div className="readonly"><Lock size={12} /> Read-only: it investigates, you decide</div>
+          {health?.auth_enabled && (
+            owner
+              ? <button className="link" onClick={signOut} disabled={busy}>Sign out</button>
+              : <button className="signin" onClick={() => setShowLogin(true)}>Owner sign-in for live questions</button>
+          )}
         </div>
       </aside>
 
       <main>
         <header className="topbar">
           <h2 title={title}>{title}</h2>
-          {threadId && <span className="thread-id">{threadId}</span>}
+          {view.kind === 'showcase' && (
+            <span className="replay-badge">Recorded {fmtDate(view.item.recorded)} · read-only replay</span>
+          )}
+          {view.kind === 'chat' && threadId && <span className="thread-id">{threadId}</span>}
         </header>
 
         <div className="conversation">
-          {turns.length === 0 && (
+          {view.kind === 'home' && (
+            <div className="empty landing">
+              <Logo size={56} />
+              <h1>An AI on-call assistant for data pipelines</h1>
+              <p>
+                It investigates the way an on-call engineer would: reading Airflow runs and logs,
+                querying the data lake, checking the team's runbooks and past incidents. Then it
+                returns a structured diagnosis in which every piece of evidence is verified against
+                real tool output. All access is read-only.
+              </p>
+              {showcase.length > 0 && (
+                <>
+                  <h3 className="landing-sub">Replay a real investigation</h3>
+                  <div className="showcase-cards">
+                    {showcase.map((s) => (
+                      <button key={s.slug} onClick={() => openShowcase(s.slug)}>
+                        <span className="ex-tag">Recorded {fmtDate(s.recorded)}</span>
+                        <strong>{s.title}</strong>
+                        <span className="muted">{s.summary}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <p className="landing-links">
+                <a href={REPO_URL} target="_blank" rel="noreferrer">Source, architecture and evals on GitHub →</a>
+              </p>
+            </div>
+          )}
+
+          {view.kind === 'chat' && turns.length === 0 && (
             <div className="empty">
               <Logo size={56} />
               <h1>What looks wrong in your pipeline?</h1>
@@ -191,31 +298,48 @@ export default function App() {
               </div>
             </div>
           )}
-          {turns.map((t, i) => <Turn key={i} turn={t} toolServers={toolServers} />)}
+
+          {view.kind !== 'home' && turns.map((t, i) => <Turn key={i} turn={t} toolServers={toolServers} />)}
           {error && <p className="error banner">{error}</p>}
           <div ref={bottomRef} />
         </div>
 
-        <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input) }}>
-          <div className="composer-box">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                // Enter sends, Shift+Enter adds a new line
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
-              }}
-              placeholder={busy ? 'Investigating…' : 'Ask about your pipeline…'}
-              rows={1}
-              maxLength={4000}
-              disabled={busy}
-            />
-            <button type="submit" disabled={busy || !input.trim()} aria-label="Send"><Send size={18} /></button>
-          </div>
-          <p className="hint">Enter to send · Shift+Enter for a new line · answers can take a minute on real incidents</p>
-        </form>
+        {view.kind === 'chat' && owner ? (
+          <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input) }}>
+            <div className="composer-box">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter sends, Shift+Enter adds a new line
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
+                }}
+                placeholder={busy ? 'Investigating…' : 'Ask about your pipeline…'}
+                rows={1}
+                maxLength={4000}
+                disabled={busy}
+              />
+              <button type="submit" disabled={busy || !input.trim()} aria-label="Send"><Send size={18} /></button>
+            </div>
+            <p className="hint">Enter to send · Shift+Enter for a new line · answers can take a minute on real incidents</p>
+          </form>
+        ) : (
+          view.kind === 'showcase' && (
+            <div className="replay-note">
+              This is a recorded investigation, shown exactly as it ran.
+              {health?.auth_enabled && !owner && <> Live questions are limited to the owner.</>}
+            </div>
+          )
+        )}
       </main>
+
+      {showLogin && (
+        <LoginModal
+          onClose={() => setShowLogin(false)}
+          onSuccess={() => { setShowLogin(false); loadSession() }}
+        />
+      )}
     </div>
   )
 }

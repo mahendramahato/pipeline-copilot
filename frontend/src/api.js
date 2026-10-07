@@ -12,7 +12,21 @@ async function errorText(res) {
   return typeof body.detail === 'string' ? body.detail : `Request failed (${res.status})`
 }
 
+async function postJson(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  if (!res.ok) throw new Error(await errorText(res))
+  return res.json()
+}
+
 export const getHealth = () => getJson('/api/health')
+export const getShowcaseList = () => getJson('/api/showcase')
+export const getShowcase = (slug) => getJson(`/api/showcase/${encodeURIComponent(slug)}`)
+export const login = (password) => postJson('/api/login', { password })
+export const logout = () => postJson('/api/logout')
 export const getThreads = () => getJson('/api/threads')
 export const getThread = (id) => getJson(`/api/threads/${encodeURIComponent(id)}`)
 

@@ -173,6 +173,24 @@ LLM_MODEL=gpt-6.1-sol uv run python -m evals.run   # same suite on another model
 uv run python -m evals.run --only stuck_task --repeat 3
 ```
 
+### Hosting
+
+The hosted version runs on the same Oracle VM as the pipeline, as one Docker container
+(React build + API + agent + MCP servers) on the pipeline's Docker network, behind the
+pipeline's Caddy on its own HTTPS subdomain.
+
+- **Public:** a showcase of real, reviewed investigations (`showcase/*.json`), replayed with
+  the full timeline and diagnosis. Visitors never touch the live agent or its memory.
+- **Owner only:** live questions and saved conversations, behind a password (signed HttpOnly
+  cookie, login rate limits). The API refuses to listen publicly without a password set.
+- Export a conversation to the showcase:
+  `uv run python -m pipeline_copilot.showcase export <thread_id> <slug> "<title>"`
+
+```bash
+cp .env.deploy.example .env.deploy        # fill in keys and passwords
+docker compose up -d --build
+```
+
 ---
 
 ## Limitations and future work
