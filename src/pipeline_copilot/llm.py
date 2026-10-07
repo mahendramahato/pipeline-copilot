@@ -22,4 +22,6 @@ def chat_model(model: str, max_tokens: int) -> BaseChatModel:
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=model, max_tokens=max_tokens)
     from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model=model, max_tokens=max_tokens)
+    # Responses API: newer OpenAI reasoning models (e.g. gpt-5.6-*) only accept
+    # function tools there, not on the older /v1/chat/completions endpoint.
+    return ChatOpenAI(model=model, max_tokens=max_tokens, use_responses_api=True)
