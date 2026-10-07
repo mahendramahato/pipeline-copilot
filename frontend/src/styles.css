@@ -513,3 +513,107 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .monitor-row .link, .monitor > .link { margin: 0; padding: 0; text-align: left; font-size: 12px; }
 .monitor-time { font-size: 11px; color: var(--sidebar-muted); }
 .monitor-fail { font-size: 12px; color: #fca5a5; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* ---------- Mascot: the robot with the wrench (Robot.jsx) ----------
+   Positions are percentages of the picture: the arm turns around its elbow, and the
+   sparks sit in the wrench's upper jaw, so they move with it. */
+.robot { position: relative; display: inline-block; flex-shrink: 0; }
+.robot-figure, .robot-tool { position: absolute; inset: 0; }
+.robot img { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; pointer-events: none; }
+.robot-figure { transform-origin: 50% 100%; }
+.robot-tool { transform-origin: 32% 45.5%; }
+.robot-lid {
+  position: absolute; width: 7%; height: 6.2%; border-radius: 50%;
+  background: #0d0e14; transform: scaleY(0); transform-origin: 50% 0;
+}
+.robot-lid.left { left: 41.5%; top: 17.9%; }
+.robot-lid.right { left: 53.3%; top: 17.1%; }
+.robot-sparks { position: absolute; left: 26.8%; top: 17.5%; }
+.robot-sparks i {
+  position: absolute; left: -.22em; top: -.22em; width: .44em; height: .44em; border-radius: 50%;
+  background: radial-gradient(circle, #fff7c2 0 35%, #fbbf24 60%, rgba(251, 146, 60, 0) 72%);
+  opacity: 0;
+}
+.robot-sparks i:nth-child(1) { --dx: -1.7em; --dy: -1.4em; }
+.robot-sparks i:nth-child(2) { --dx: .3em; --dy: -2.2em; }
+.robot-sparks i:nth-child(3) { --dx: 1.8em; --dy: -1.2em; }
+.robot-sparks i:nth-child(4) { --dx: -2em; --dy: .3em; }
+.robot-sparks i:nth-child(5) { --dx: 1.4em; --dy: .7em; }
+
+/* idle: stands, breathes, blinks, and every few seconds gives the wrench two firm turns */
+.robot.idle .robot-figure { animation: robot-breathe 3.6s ease-in-out infinite; }
+.robot.idle .robot-tool { animation: robot-tighten 3.6s ease-in-out infinite; }
+.robot.idle .robot-sparks i { animation: robot-spark-idle 3.6s ease-out infinite; }
+.robot.idle .robot-lid, .robot.working .robot-lid { animation: robot-blink 4.3s infinite; }
+
+/* working: rapid ratcheting with sparks while an investigation runs */
+.robot.working .robot-figure { animation: robot-lean .9s ease-in-out infinite; }
+.robot.working .robot-tool { animation: robot-ratchet .9s ease-in-out infinite; }
+.robot.working .robot-sparks i { animation: robot-spark .9s ease-out infinite; }
+.robot.working .robot-sparks i:nth-child(odd) { animation-delay: .45s; }
+
+/* found: one hop and a wrench flourish, then stands still */
+.robot.found .robot-figure { animation: robot-hop .7s cubic-bezier(.3, .7, .4, 1) 1; }
+.robot.found .robot-tool { animation: robot-flourish .9s ease-in-out 1; }
+
+@keyframes robot-breathe {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-1.6%) rotate(0); }
+  62%, 78% { transform: translateY(-.8%) rotate(-1.5deg); }
+}
+@keyframes robot-tighten {
+  0%, 52%, 100% { transform: rotate(0); }
+  60% { transform: rotate(-17deg); }
+  66% { transform: rotate(3deg); }
+  74% { transform: rotate(-15deg); }
+  81% { transform: rotate(3deg); }
+  90% { transform: rotate(0); }
+}
+@keyframes robot-ratchet {
+  0%, 100% { transform: rotate(2deg); }
+  45% { transform: rotate(-18deg); }
+  55% { transform: rotate(-16deg); }
+}
+@keyframes robot-lean {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  45% { transform: translateY(-1%) rotate(-2deg); }
+}
+@keyframes robot-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  20% { transform: translateY(0) scale(1.04, .94); }
+  50% { transform: translateY(-12%) scale(.97, 1.04); }
+  80% { transform: translateY(0) scale(1.03, .96); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes robot-flourish {
+  0%, 100% { transform: rotate(0); }
+  35% { transform: rotate(-30deg); }
+  65% { transform: rotate(10deg); }
+}
+@keyframes robot-blink {
+  0%, 92%, 100% { transform: scaleY(0); }
+  95% { transform: scaleY(1); }
+}
+@keyframes robot-spark {
+  0%, 40% { opacity: 0; transform: translate(0, 0) scale(1); }
+  45% { opacity: 1; transform: translate(0, 0) scale(1.3); }
+  90%, 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.3); }
+}
+@keyframes robot-spark-idle {
+  0%, 59% { opacity: 0; transform: translate(0, 0) scale(1); }
+  61% { opacity: 1; transform: translate(0, 0) scale(1.3); }
+  72%, 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.3); }
+}
+
+/* Where it appears */
+.empty .robot { margin-bottom: -6px; }
+.robot-glow { position: relative; display: inline-block; }
+.robot-glow::before {
+  content: ""; position: absolute; left: 50%; bottom: 2%; width: 70%; height: 10%;
+  transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(15, 23, 42, .22), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robot *, .robot *::before { animation: none !important; }
+}

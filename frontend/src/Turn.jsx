@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import DiagnosisCard from './DiagnosisCard.jsx'
-import { Alert, Check, Chevron, Clock, Logo } from './Icons.jsx'
+import { Alert, Check, Chevron, Clock } from './Icons.jsx'
+import Robot from './Robot.jsx'
 
 const SERVER_LABELS = { airflow: 'Airflow', athena: 'Athena', knowledge: 'Knowledge', agent: 'Agent' }
 
@@ -55,7 +56,8 @@ export default function Turn({ turn, toolServers }) {
       <div className="question">{turn.question}</div>
 
       <div className="reply">
-        <div className="avatar"><Logo size={28} /></div>
+        {/* The robot works while the agent investigates and hops when it finds a problem */}
+        <div className="avatar"><Robot size={40} mode={turn.pending ? 'working' : problem ? 'found' : 'rest'} /></div>
         <div className="reply-body">
           {steps.length > 0 && (
             <div className={`steps ${turn.pending ? 'live' : ''}`}>
