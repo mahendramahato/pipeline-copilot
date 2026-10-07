@@ -14,10 +14,12 @@
 - VM disk full (writes fail).
 
 ## How to check
-- The log line names the stale dataset: one dataset stale -> its stream job;
-  both stale -> producer or Kafka.
-- On the VM: docker ps (is the container up?), docker logs <container> --tail 100.
-- Container logs are not visible to the agent's tools; a human must check them.
+- get_live_lake_freshness: which feed stopped and when (minutes, not the next nightly run):
+  one dataset stale -> its stream job; both stale -> producer or Kafka; one station stale ->
+  that NOAA station (upstream), not the pipeline.
+- list_containers: is weather-stream / seismic-stream / producer / kafka running, crash-looping
+  (restarts climbing) or OOM-killed?
+- get_container_logs <container>: the exception or API error that stopped it.
 
 ## Fix
 - Restart the stopped container (docker compose up -d <service>).

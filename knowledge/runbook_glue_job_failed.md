@@ -12,7 +12,8 @@
 
 ## How to check
 - curate_day task log: the Glue run id and final state, plus any error message.
-- The full error is in the Glue job's CloudWatch logs (not visible to the agent's tools).
+- get_glue_job_runs: state, error message and duration of recent runs.
+- get_glue_job_log <run_id> (stream "error"): the full stack trace from CloudWatch.
 
 ## Fix
 - Concurrency: wait for the other run, then clear curate_day.

@@ -31,7 +31,7 @@ Registered catalog partitions are NO LONGER relevant to curation: they stopping 
 - curate_day task log: did the Glue run fail (and with what error), or succeed?
 - target_date log: which date was curated.
 - If raw is missing too, go upstream: sync_to_s3 log and check_freshness.
-- Glue job CloudWatch output log: "X raw -> Y curated" (not visible to the agent's tools).
+- get_glue_job_log <run_id>: the summary line "X raw -> Y curated"; X = 0 confirms empty input.
 
 ## Fix
 - Cause 1: fix the upstream problem (streaming, sync), then backfill (see runbook: backfill).

@@ -51,6 +51,12 @@ class World:
     tables: dict[str, list[dict]] = field(default_factory=dict)           # table -> rows (each has "date")
     registered_partitions: dict[str, list[str]] = field(default_factory=dict)
     table_versions: dict[str, list[dict]] = field(default_factory=dict)   # table -> [{version, updated, columns}]
+    # Live host state (Ops tools). Empty = healthy: feeds current, containers up, dashboard OK.
+    lake_lag_minutes: dict[str, int] = field(default_factory=dict)        # "weather"/"seismic" -> minutes since last file
+    station_lag_minutes: dict[str, int] = field(default_factory=dict)     # station_id -> minutes behind
+    containers: dict[str, dict] = field(default_factory=dict)             # name -> overrides (state, status, restarts...)
+    container_logs: dict[str, str] = field(default_factory=dict)          # name -> log text
+    dashboard: dict[str, dict] = field(default_factory=dict)              # check label -> overrides
 
     # --- Rebuild curated tables from raw, up to yesterday (what the nightly Glue job does) ---
     # Scenarios break RAW data, then call this so the damage flows downstream realistically.

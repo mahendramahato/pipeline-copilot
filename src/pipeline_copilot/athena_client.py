@@ -33,6 +33,7 @@ class AthenaClient:
         session = boto3.Session(profile_name=settings.aws_profile, region_name=settings.aws_region)
         self._athena = session.client("athena")
         self._glue = session.client("glue")
+        self._logs = session.client("logs")
         self._settings = settings
         self._timeout_s = timeout_s
 
@@ -103,4 +104,14 @@ class AthenaClient:
         )
         return [p for page in pages for p in page["Partitions"]]
 
+    # --- Glue job runs and their CloudWatch logs (read-only) ---
+    def get_job_runs(self, job: str, limit: int = 5) -> list[dict]:
+        return self._glue.get_job_runs(JobName=job, MaxResults=limit)["JobRuns"]
 
+    def get_job_log(self, run_id: str, stream: str = "output", limit: int = 200) -> list[str]:
+        # Glue writes print() output to /aws-glue/jobs/output and errors to
+        # /aws-glue/jobs/error, one log stream per run (named after the run id).
+        resp = self._logs.get_log_events(
+            logGroupName=f"/aws-glue/jobs/{stream}", logStreamName=run_id, startFromHead=False, limit=limit
+        )
+        return [e["message"].rstrip() for e in resp["events"]]

@@ -27,12 +27,12 @@ class UnsafeQueryError(ValueError):
     """The query was rejected. The message says why, so the agent can fix it."""
 
 
-def check_query(sql: str, database: str, allowed_tables: set[str]) -> str:
+def check_query(sql: str, database: str, allowed_tables: set[str], dialect: str = "athena") -> str:
     """Return a safe, normalized version of `sql`, or raise UnsafeQueryError."""
 
     # --- Rule 1: must parse ---
     try:
-        statements = sqlglot.parse(sql, read="athena")
+        statements = sqlglot.parse(sql, read=dialect)
     except ParseError as e:
         raise UnsafeQueryError(f"Could not parse SQL: {e}") from e
 
@@ -77,4 +77,4 @@ def check_query(sql: str, database: str, allowed_tables: set[str]) -> str:
     if current is None or current > MAX_LIMIT:
         stmt = stmt.limit(min(current or DEFAULT_LIMIT, MAX_LIMIT))
 
-    return stmt.sql(dialect="athena")
+    return stmt.sql(dialect=dialect)

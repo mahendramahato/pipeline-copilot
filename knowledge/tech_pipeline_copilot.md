@@ -14,10 +14,18 @@ tool to call next, reads the result, and repeats until it can answer.
 
 ## What is MCP (Model Context Protocol)?
 MCP is an open standard for giving AI models tools. Tools live in separate MCP servers; any MCP
-client (this agent, Claude Code, ...) can discover and call them. Pipeline Copilot runs three
+client (this agent, Claude Code, ...) can discover and call them. Pipeline Copilot runs four
 servers: Airflow (DAG runs, task instances, task logs), Athena (tables, schemas, versions,
-registered partitions, SQL queries) and Knowledge (runbook search, past incidents). Each server
-holds its own read-only credentials, so the agent process never sees them.
+registered partitions, SQL queries, Glue job runs and logs), Knowledge (runbook search, past
+incidents) and Ops (the live local lake, container status and logs, dashboard health). Each
+server holds its own read-only access, so the agent process never sees credentials.
+
+## The health monitor
+Every 30 minutes the hosted instance runs free, deterministic checks: is each streaming feed
+writing, is every weather station current, are the containers running, is the dashboard up,
+did last night's DAG run succeed, is yesterday curated. Only when a check newly fails does it run
+an AI investigation (at most a few per day) and send one alert with the root cause, impact and
+fix; when the check passes again it announces recovery.
 
 ## What is RAG and how it is used here
 RAG (retrieval-augmented generation) lets a model answer from documents it was not trained on.

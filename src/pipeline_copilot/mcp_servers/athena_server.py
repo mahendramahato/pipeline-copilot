@@ -6,7 +6,8 @@ Never print() here: stdout carries the MCP protocol.
 """
 from datetime import datetime, timezone
 from functools import cache
-from typing import Annotated
+import os
+from typing import Annotated, Literal
 
 from botocore.exceptions import BotoCoreError, ClientError
 from mcp.server.fastmcp import FastMCP
@@ -224,6 +225,52 @@ def run_query(
     except (ClientError, BotoCoreError) as e:
         return _aws_error(e)
     return _format_result(result)
+
+
+GLUE_JOB = os.environ.get("GLUE_JOB_NAME", "curate-daily")
+
+
+@mcp.tool(annotations=READ_ONLY)
+def get_glue_job_runs(
+    limit: Annotated[int, Field(description="How many recent runs.", ge=1, le=20)] = 5,
+) -> str:
+    """Recent runs of the Glue curation job: state, the date it curated (--DATE), start time,
+    duration and error message. Use when curate_day failed, ran long, or curated data looks wrong.
+    """
+    try:
+        runs = _client().get_job_runs(GLUE_JOB, limit)
+    except (ClientError, BotoCoreError) as e:
+        return _aws_error(e)
+    if not runs:
+        return f"No runs found for Glue job {GLUE_JOB}."
+    return "\n".join(
+        f"run_id={r['Id']} | state={r['JobRunState']} | date={r.get('Arguments', {}).get('--DATE', '?')} | "
+        f"started={_utc(r.get('StartedOn'))} | duration_s={r.get('ExecutionTime')}"
+        + (f" | error={r['ErrorMessage'][:300]}" if r.get("ErrorMessage") else "")
+        for r in runs
+    )
+
+
+@mcp.tool(annotations=READ_ONLY)
+def get_glue_job_log(
+    run_id: Annotated[str, Field(description="run_id from get_glue_job_runs (starts with jr_).")],
+    stream: Annotated[Literal["output", "error"], Field(description="output = what the job printed; error = errors and stack traces.")] = "output",
+) -> str:
+    """The CloudWatch log of one Glue job run. The output log includes the job's summary line
+    "date=... weather: X raw -> Y curated | seismic: X raw -> Y curated" (X = 0 means empty input).
+    """
+    try:
+        lines = _client().get_job_log(run_id, stream)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+            return f"No {stream} log for {run_id} (the run may have produced no {stream} output)."
+        return _aws_error(e)
+    except BotoCoreError as e:
+        return _aws_error(e)
+    # Lead with the summary lines, then the tail
+    summary = [line for line in lines if " raw -> " in line]
+    text = "\n".join(line[:300] for line in lines[-80:]) or "(empty log)"
+    return ("summary:\n" + "\n".join(summary) + "\n---\n" if summary else "") + text
 
 
 if __name__ == "__main__":

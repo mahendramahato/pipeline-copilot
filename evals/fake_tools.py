@@ -1,18 +1,21 @@
 """Fake tools for evals: the SAME names, descriptions and schemas as the real MCP
 tools (copied from the servers at runtime), answering from a simulated World."""
 import csv
+import hashlib
+import json
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import duckdb
 import sqlglot
 from langchain_core.tools import BaseTool, StructuredTool
 
-from evals.world import DAG_ID, SCHEMAS, World
+from evals.world import DAG_ID, SCHEMAS, STATIONS, World
+from pipeline_copilot import ops
 from pipeline_copilot.athena_client import QueryResult
 from pipeline_copilot.config import load_knowledge_settings
 from pipeline_copilot.knowledge_base import search
-from pipeline_copilot.mcp_servers import airflow_server, athena_server, knowledge_server
+from pipeline_copilot.mcp_servers import airflow_server, athena_server, knowledge_server, ops_server
 from pipeline_copilot.sql_guard import UnsafeQueryError, check_query
 
 DATABASE = "weather_seismic"
@@ -38,6 +41,8 @@ def _duckdb(world: World) -> duckdb.DuckDBPyConnection:
                 writer.writerows([["" if r.get(c) is None else r[c] for c in cols] for r in rows])
                 f.flush()
                 con.execute(f"COPY {table} FROM '{f.name}' (HEADER false, NULL '')")
+    con.execute("CREATE VIEW lake_weather AS SELECT * FROM raw_weather")
+    con.execute("CREATE VIEW lake_seismic AS SELECT * FROM raw_seismic")
     return con
 
 
@@ -153,17 +158,124 @@ def _impls(world: World) -> dict:
     def get_current_time():
         return world.now.isoformat(timespec="seconds")
 
+    # ---- Ops tools: the live host. Healthy unless the scenario sets world overrides ----
+    def _freshness() -> dict:
+        datasets = {}
+        for name in ("weather", "seismic"):
+            lag = world.lake_lag_minutes.get(name, 2)
+            datasets[name] = {"newest_file_minutes": lag, "partition": f"date={world.now:%Y-%m-%d}",
+                              "stale": lag > ops.STALE_FILE_MINUTES}
+        stations = [{"station": sid, "minutes_behind": world.station_lag_minutes.get(sid, 25),
+                     "readings_since_yesterday": 120,
+                     "stale": world.station_lag_minutes.get(sid, 25) > ops.STALE_STATION_MINUTES}
+                    for sid in sorted(STATIONS)]
+        return {"now": world.now.isoformat(timespec="seconds"), "datasets": datasets, "stations": stations,
+                "seismic": {"events_today": 40, "last_ingest_minutes": world.lake_lag_minutes.get("seismic", 2)}}
+
+    def _containers() -> list[dict]:
+        base = [{"name": n, "state": "running", "status": "Up 3 days", "restarts": 0, "exit_code": 0,
+                 "oom_killed": False} for n in ops.DEFAULT_EXPECTED.split(",") + ["copilot", "kafka-ui", "spark"]]
+        return sorted(({**c, **world.containers.get(c["name"], {})} for c in base), key=lambda c: c["name"])
+
+    def _dashboard() -> dict:
+        base = {"api_health": {"ok": True, "status": 200, "ms": 12},
+                "api_stations": {"ok": True, "status": 200, "ms": 40, "stations": len(STATIONS),
+                                 "by_status": {"normal": len(STATIONS)}},
+                "public_site": {"ok": True, "status": 200, "ms": 180}}
+        return {k: {**v, **world.dashboard.get(k, {})} for k, v in base.items()}
+
+    def get_live_lake_freshness():
+        return ops.format_freshness(_freshness())
+
+    def query_live_lake(sql):
+        # Approximation: the live lake = the world's raw tables
+        try:
+            safe_sql = check_query(sql, "lake", {"lake_weather", "lake_seismic"}, dialect="duckdb")
+        except UnsafeQueryError as e:
+            return f"Blocked by SQL guardrail: {e}"
+        try:
+            cur = con.execute(safe_sql)
+            cols, rows = [d[0] for d in cur.description], cur.fetchmany(100)
+        except duckdb.Error as e:
+            return f"Query FAILED: {str(e).splitlines()[0]}\nSQL that ran: {safe_sql}"
+        return "\n".join([" | ".join(cols)] + [" | ".join("NULL" if v is None else str(_athena_str(v)) for v in r)
+                                              for r in rows] + [f"({len(rows)} rows; live local lake)"])
+
+    def list_containers():
+        return ops.format_containers(_containers())
+
+    def get_container_logs(container, tail=100):
+        names = {c["name"] for c in _containers()}
+        if container not in names:
+            return f"No container named {container!r}. Use list_containers to see the names."
+        default = f"{world.now:%Y-%m-%dT%H:%M:%S} INFO running normally"
+        return world.container_logs.get(container, default)
+
+    def check_dashboard():
+        return ops.format_dashboard(_dashboard())
+
+    def run_health_checks():
+        f, checks = _freshness(), []
+        for name, d in f["datasets"].items():
+            checks.append({"check": f"lake {name} receiving data", "ok": not d["stale"],
+                           "detail": f"newest file {d['newest_file_minutes']} min ago"})
+        stale = [s["station"] for s in f["stations"] if s["stale"]]
+        checks.append({"check": "all weather stations reporting", "ok": not stale,
+                       "detail": f"stale: {', '.join(stale)}" if stale else f"{len(f['stations'])} stations current"})
+        for c in _containers():
+            if c["name"] in ops.DEFAULT_EXPECTED.split(","):
+                checks.append({"check": f"container {c['name']} running", "ok": c["state"] == "running",
+                               "detail": f"{c['state']} ({c['status']}), restarts={c['restarts']}"})
+        for label, r in _dashboard().items():
+            checks.append({"check": f"dashboard {label}", "ok": r["ok"], "detail": f"HTTP {r.get('status')}"})
+        return json.dumps(checks)
+
+    # ---- Glue job runs, derived from each DAG run's curate_day task ----
+    def _glue_runs() -> list[dict]:
+        runs = []
+        for run in world.dag_runs:
+            task = next((t for t in world.task_instances.get(run["dag_run_id"], []) if t["task_id"] == "curate_day"), None)
+            if task is None:
+                continue
+            logs = " ".join(v for k, v in world.task_logs.items() if k[0] == run["dag_run_id"] and k[1] == "curate_day")
+            error = logs.split("ErrorMessage: ", 1)[1].split("\n")[0] if "ErrorMessage: " in logs else None
+            target = run["dag_run_id"][11:21]  # scheduled__YYYY-MM-DD -> curates the day before
+            day = (datetime.fromisoformat(target) - timedelta(days=1)).strftime("%Y-%m-%d")
+            runs.append({"id": "jr_" + hashlib.sha256(run["dag_run_id"].encode()).hexdigest(), "date": day,
+                         "state": {"success": "SUCCEEDED", "failed": "FAILED"}.get(task["state"], "RUNNING"),
+                         "started": run["start_date"], "duration": task["duration"], "error": error})
+        return runs
+
+    def get_glue_job_runs(limit=5):
+        return "\n".join(
+            f"run_id={r['id']} | state={r['state']} | date={r['date']} | started={r['started']} | "
+            f"duration_s={r['duration']}" + (f" | error={r['error'][:300]}" if r["error"] else "")
+            for r in _glue_runs()[:limit]) or "No runs found for Glue job curate-daily."
+
+    def get_glue_job_log(run_id, stream="output"):
+        run = next((r for r in _glue_runs() if r["id"] == run_id), None)
+        if run is None or run["state"] == "RUNNING":
+            return f"No {stream} log for {run_id} (the run may have produced no {stream} output)."
+        if run["state"] == "FAILED":
+            return run["error"] if stream == "error" else f"No output log for {run_id}."
+        count = lambda t: sum(1 for r in world.tables.get(t, []) if r["date"] == run["date"])
+        line = (f"date={run['date']} weather: {count('raw_weather')} raw -> {count('curated_weather')} curated | "
+                f"seismic: {count('raw_seismic')} raw -> {count('curated_seismic')} curated")
+        return f"summary:\n{line}\n---\n{line}"
+
     return {f.__name__: f for f in [
         list_dags, get_recent_dag_runs, get_task_instances, get_task_log,
         list_tables, get_table_schema, get_table_versions, get_registered_partitions, run_query,
         search_runbooks, search_past_incidents, record_incident, get_current_time,
+        get_live_lake_freshness, query_live_lake, list_containers, get_container_logs,
+        check_dashboard, run_health_checks, get_glue_job_runs, get_glue_job_log,
     ]}
 
 
 async def make_fake_tools(world: World) -> list[BaseTool]:
     impls = _impls(world)
     # The real tools' names, descriptions and argument schemas, read from the servers
-    real = [t for server in (airflow_server, athena_server, knowledge_server)
+    real = [t for server in (airflow_server, athena_server, knowledge_server, ops_server)
             for t in await server.mcp.list_tools()]
     missing = {t.name for t in real} - impls.keys()
     if missing:

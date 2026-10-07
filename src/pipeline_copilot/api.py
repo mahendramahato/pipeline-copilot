@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from pipeline_copilot import auth
+from pipeline_copilot import auth, monitor
 from pipeline_copilot.config import PROJECT_ROOT
 from pipeline_copilot.runtime import list_threads, load_thread, new_thread_id, open_agent, run_turn
 from pipeline_copilot.showcase import get_showcase, list_showcase
@@ -31,7 +31,15 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 async def lifespan(app: FastAPI):
     async with open_agent() as agent:
         app.state.agent = agent
+        # The health monitor runs in the background when enabled (hosted instance)
+        app.state.monitor = monitor.MonitorState(
+            enabled=monitor.enabled(),
+            interval_minutes=int(os.environ.get("MONITOR_INTERVAL_MINUTES", "30")),
+        )
+        task = asyncio.create_task(monitor.monitor_loop(agent, app.state.monitor)) if monitor.enabled() else None
         yield
+        if task:
+            task.cancel()
 
 
 app = FastAPI(title="Pipeline Copilot", lifespan=lifespan)
@@ -147,6 +155,24 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     # no-cache + no proxy buffering, so each event reaches the browser immediately
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/monitor", dependencies=[Depends(require_owner)])
+async def monitor_status() -> dict:
+    return app.state.monitor.public()
+
+
+_monitor_lock = asyncio.Lock()
+
+
+@app.post("/api/monitor/run", dependencies=[Depends(require_owner)])
+async def monitor_run() -> dict:
+    # Run a monitoring pass now (same logic as the schedule; one at a time)
+    if _monitor_lock.locked():
+        raise HTTPException(409, "A check is already running.")
+    async with _monitor_lock:
+        await monitor.run_once(app.state.agent, app.state.monitor)
+    return app.state.monitor.public()
 
 
 # --- Serve the built React app, if it exists (npm run build in frontend/) ---

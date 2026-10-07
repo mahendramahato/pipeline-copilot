@@ -1,8 +1,8 @@
 # Pipeline Copilot on the Oracle VM, next to the weather-seismic pipeline.
 #
-# It joins that project's Docker network, so Airflow is reachable as
-# airflow:8080 (no SSH tunnel) and the pipeline's Caddy container can serve it
-# over HTTPS on its own subdomain. No ports are published here.
+# It joins that project's Docker network, so Airflow is reachable as airflow:8080
+# (no SSH tunnel), the dashboard API as api:8000, and the pipeline's Caddy container
+# serves it over HTTPS on its own subdomain. No ports are published here.
 #
 #   docker compose up -d --build
 services:
@@ -23,12 +23,33 @@ services:
       - ~/.aws-copilot:/home/app/.aws:ro
       # Conversations + Chroma (runbook index and incident memory) survive restarts
       - copilot-data:/data
-    networks: [pipeline]
+      # The Spark jobs' local lake, read-only: live freshness, minutes after a feed stops
+      - ~/weather-seismic-pipeline/data/lake:/lake:ro
+    networks: [pipeline, docker-api]
+    depends_on: [docker-proxy]
+
+  # Read-only gateway to the Docker API, so the agent can see container status and
+  # logs. CONTAINERS=1 allows GET on /containers (list, inspect, logs); everything
+  # else is denied, including every write (POST=0: no start, stop, exec or create).
+  # The raw socket is root-equivalent, so the copilot container never gets it.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: copilot-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api]
 
 networks:
   pipeline:
     external: true
     name: weather-seismic-pipeline_default
+  # Private: only copilot can reach the proxy, and the proxy has no internet access
+  docker-api:
+    internal: true
 
 volumes:
   copilot-data:

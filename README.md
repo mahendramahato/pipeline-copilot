@@ -4,7 +4,7 @@
 
 **An AI on-call assistant for data pipelines.** Ask it why something looks wrong and it investigates the way an on-call engineer would: it reads Airflow runs and logs, queries the data lake, checks the team's runbooks and past incidents, then returns a structured diagnosis in which **every piece of evidence is verified against real tool output**.
 
-Built with **LangGraph** (agent loop), **MCP** (three tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
+Built with **LangGraph** (agent loop), **MCP** (four tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
 
 It runs against my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline) (NOAA + USGS → Kafka → Spark → S3 → Glue → Athena, orchestrated by Airflow), but nothing in the design is specific to it.
 
@@ -71,6 +71,8 @@ and each one runs with read-only credentials. **The knowledge base** is the RAG 
 are split by section and embedded into Chroma offline (whenever the docs change), and the
 agent searches them during an investigation. The same store keeps verified past incidents.
 
+- **Four MCP servers:** Airflow (runs, task logs), Athena (data, schemas, Glue job runs and their CloudWatch logs), Knowledge (runbooks, explainers, past incidents) and Ops (the live Spark lake, container status and logs, dashboard health).
+- **A health monitor** runs free, deterministic checks every 30 minutes (every feed and station current, containers up, dashboard reachable, last night's DAG run, yesterday curated). Only when a check newly fails does it run an AI investigation (capped per day) and send one alert with root cause, impact and fix.
 - **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
 - **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).
 
@@ -84,6 +86,7 @@ agent searches them during an investigation. The same store keeps verified past 
 | Cost limits | Runaway queries | Athena workgroup 1 GB scan cap, row and log-size caps, recursion limit |
 | Output guardrail | Made-up evidence | Every evidence quote must appear verbatim in a real tool output, or confidence is lowered ([10 tests](tests/test_output_guardrail.py)) |
 | Memory hygiene | Poisoned memory | Only verified diagnoses are saved, by the graph; the model can't write memory |
+| Docker access | Container control from the agent | A socket proxy on a private network allows only reading containers (list, inspect, logs); start, stop, exec and create are refused (verified: 403) |
 
 ---
 
@@ -215,7 +218,7 @@ The eval suite itself is not in CI: it calls a real model, so it costs money and
 ## Limitations and future work
 
 - **Read-only by design:** it diagnoses and suggests fixes; a human applies them.
-- It can't see container logs or Glue CloudWatch logs, so failures inside a stream job or Glue script are visible only through their effects.
+- It sees the host through read-only views only: it can tell that a container crashed and why, but never restarts anything.
 - Over-investigation on simple cases (see Evaluation).
 - The web API has no login, so it binds to localhost only.
 - **Next:** auto-triggering from Airflow failure callbacks, and human-approved remediation (LangGraph `interrupt()`).

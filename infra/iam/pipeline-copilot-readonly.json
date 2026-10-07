@@ -34,20 +34,45 @@
     {
       "Sid": "LakeListBucket",
       "Effect": "Allow",
-      "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
       "Resource": "arn:aws:s3:::weather-seismic-lake-mahendra"
     },
     {
       "Sid": "LakeReadObjects",
       "Effect": "Allow",
-      "Action": ["s3:GetObject"],
+      "Action": [
+        "s3:GetObject"
+      ],
       "Resource": "arn:aws:s3:::weather-seismic-lake-mahendra/*"
     },
     {
       "Sid": "WriteOnlyOwnQueryResults",
       "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
       "Resource": "arn:aws:s3:::weather-seismic-lake-mahendra/athena-results/pipeline-copilot/*"
+    },
+    {
+      "Sid": "GlueJobRunsRead",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetJobRuns",
+        "glue:GetJobRun"
+      ],
+      "Resource": "arn:aws:glue:us-west-2:011713309527:job/curate-daily"
+    },
+    {
+      "Sid": "GlueJobLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:GetLogEvents"
+      ],
+      "Resource": "arn:aws:logs:us-west-2:011713309527:log-group:/aws-glue/jobs/*"
     }
   ]
 }

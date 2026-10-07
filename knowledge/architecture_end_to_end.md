@@ -39,6 +39,9 @@ after CI passes, an SSH deploy to the VM (deploy-only key, pinned host key) that
 and smoke-tests. The pipeline's deploy also uploads the Glue script to S3 via GitHub OIDC.
 
 ## Where Pipeline Copilot fits
-Pipeline Copilot watches this pipeline from the outside, read-only: it reads Airflow (runs, task
-logs) through its REST API, queries Athena and the Glue catalog, and searches this knowledge base.
-It never changes the pipeline; it diagnoses problems and suggests fixes for a human to apply.
+Pipeline Copilot watches this pipeline read-only: Airflow runs and task logs (REST API), Athena,
+the Glue catalog, Glue job runs and their CloudWatch logs, the live local lake (mounted
+read-only), container status and logs (through a Docker API proxy that only allows reads), the
+dashboard's health, and this knowledge base. A health monitor runs cheap checks every 30 minutes
+and only investigates (and alerts) when something newly fails. It never changes the pipeline:
+it diagnoses problems and suggests fixes for a human to apply.

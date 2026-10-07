@@ -30,7 +30,7 @@ MAX_STEPS = 20
 MCP_SERVERS = {
     name: {"transport": "stdio", "command": sys.executable,
            "args": ["-m", f"pipeline_copilot.mcp_servers.{name}_server"]}
-    for name in ("airflow", "athena", "knowledge")
+    for name in ("airflow", "athena", "knowledge", "ops")
 }
 
 

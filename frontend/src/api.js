@@ -27,6 +27,8 @@ export const getShowcaseList = () => getJson('/api/showcase')
 export const getShowcase = (slug) => getJson(`/api/showcase/${encodeURIComponent(slug)}`)
 export const login = (password) => postJson('/api/login', { password })
 export const logout = () => postJson('/api/logout')
+export const getMonitor = () => getJson('/api/monitor')
+export const runMonitor = () => postJson('/api/monitor/run')
 export const getThreads = () => getJson('/api/threads')
 export const getThread = (id) => getJson(`/api/threads/${encodeURIComponent(id)}`)
 

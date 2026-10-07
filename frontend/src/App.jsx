@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getHealth, getShowcase, getShowcaseList, getThread, getThreads, logout, streamChat } from './api.js'
+import { getHealth, getMonitor, getShowcase, getShowcaseList, getThread, getThreads, logout, runMonitor, streamChat } from './api.js'
 import { Book, Lock, Logo, Plus, Send } from './Icons.jsx'
 import LoginModal from './LoginModal.jsx'
 import Turn from './Turn.jsx'
@@ -45,12 +45,15 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [showLogin, setShowLogin] = useState(false)
+  const [monitor, setMonitor] = useState(null)
+  const [checking, setChecking] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 
   const owner = Boolean(health?.owner)
 
   const refreshThreads = () => getThreads().then(setThreads).catch(() => setThreads([]))
+  const refreshMonitor = () => getMonitor().then(setMonitor).catch(() => setMonitor(null))
 
   async function loadSession() {
     try {
@@ -58,6 +61,7 @@ export default function App() {
       setHealth(h)
       if (h.owner) {
         refreshThreads()
+        refreshMonitor()
         setView((v) => (v.kind === 'home' ? { kind: 'chat' } : v))
       }
     } catch (e) {
@@ -69,6 +73,18 @@ export default function App() {
     loadSession()
     getShowcaseList().then(setShowcase).catch(() => {})
   }, [])
+
+  // While signed in, refresh the health monitor's status every 2 minutes
+  useEffect(() => {
+    if (!owner) return
+    const id = setInterval(refreshMonitor, 120000)
+    return () => clearInterval(id)
+  }, [owner])
+
+  async function checkNow() {
+    setChecking(true)
+    try { setMonitor(await runMonitor()); refreshThreads() } catch (e) { setError(e.message) } finally { setChecking(false) }
+  }
 
   // Keep the newest step in view while the agent works
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [turns])
@@ -231,6 +247,32 @@ export default function App() {
               ))}
             </div>
           )}
+          {owner && monitor?.enabled && (() => {
+            const failing = monitor.checks.filter((c) => !c.ok)
+            return (
+              <div className={`monitor ${failing.length ? 'bad' : 'ok'}`}>
+                <div className="monitor-row">
+                  <span>{monitor.checked_at
+                    ? (failing.length ? `⚠ ${failing.length} of ${monitor.checks.length} checks failing`
+                      : `✓ All ${monitor.checks.length} health checks passing`)
+                    : 'Health monitor starting…'}</span>
+                  <button className="link" onClick={checkNow} disabled={checking || busy}>{checking ? 'Checking…' : 'Check now'}</button>
+                </div>
+                {monitor.checked_at && (
+                  <div className="monitor-time">
+                    checked {new Date(monitor.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {' '}· every {monitor.interval_minutes} min
+                  </div>
+                )}
+                {failing.map((c) => <div key={c.check} className="monitor-fail" title={c.detail}>✗ {c.check}</div>)}
+                {monitor.last_investigation && (
+                  <button className="link" onClick={() => openThread(monitor.last_investigation.thread_id)} disabled={busy}>
+                    Open last automatic investigation
+                  </button>
+                )}
+              </div>
+            )
+          })()}
           <div className="readonly"><Lock size={12} /> Read-only: it investigates, you decide</div>
           {health?.auth_enabled && (
             owner
