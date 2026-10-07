@@ -42,6 +42,8 @@ export default function Turn({ turn, toolServers }) {
   const steps = buildSteps(turn.events)
   const answers = turn.events.filter((e) => e.type === 'answer')
   const diagnosis = turn.events.find((e) => e.type === 'diagnosis')
+  // Show the diagnosis card only when the investigation actually found a problem
+  const problem = diagnosis && diagnosis.diagnosis.category !== 'no_problem_found' ? diagnosis.diagnosis : null
   const errors = turn.events.filter((e) => e.type === 'error')
   const elapsed = useElapsed(turn.startedAt, turn.finishedAt)
   const sources = [...new Set(steps.map((s) => SERVER_LABELS[s.server] ?? s.server))]
@@ -93,9 +95,9 @@ export default function Turn({ turn, toolServers }) {
             </div>
           ))}
 
-          {diagnosis && <DiagnosisCard d={diagnosis.diagnosis} toolServers={toolServers} />}
+          {problem && <DiagnosisCard d={problem} />}
           {turn.pending && answers.length > 0 && !diagnosis && (
-            <p className="thinking">Writing the structured diagnosis and verifying evidence<span className="dots"><i /><i /><i /></span></p>
+            <p className="thinking">Checking the findings<span className="dots"><i /><i /><i /></span></p>
           )}
 
           {errors.map((e, i) => <p key={i} className="error"><Alert size={15} /> {e.message}</p>)}

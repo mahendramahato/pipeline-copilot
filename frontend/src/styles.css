@@ -501,3 +501,6 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 @media (max-width: 760px) {
   .replay-badge { display: none; }
 }
+
+/* Diagnosis label with its icon on one line */
+.diagnosis .eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--tone); }
