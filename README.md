@@ -121,7 +121,7 @@ Seven failures injected into a **simulated** pipeline: fake tools with the real 
 | Task running 3.5h vs a 10-minute limit (no runbook) | stuck_task | ✓ | high |
 | Nothing wrong (false-alarm check) | no_problem_found | ✓ | high |
 
-**7/7 correct, 7/7 grounded, 0 confidently wrong, about $0.21 per investigation** (agent loop).
+**7/7 correct, 7/7 grounded, 0 confidently wrong, about $0.09 per investigation** (agent loop, with prompt caching; $0.21 before caching).
 
 Caveats: a single run per scenario, scenarios written by the agent's author, and keyword-based scoring. The suite also shows the main weakness: **healthy or "nothing to do" cases still take 17–18 tool calls**, so the agent over-investigates.
 
@@ -131,7 +131,7 @@ Caveats: a single run per scenario, scenarios written by the agent's author, and
 
 | | |
 |---|---|
-| Agent | LangGraph, `langchain-anthropic`, Claude Opus 5.5 (agent + diagnosis), Claude Haiku 4.5 (guardrail) |
+| Agent | LangGraph, `langchain-anthropic`, Claude Opus 5.5 (agent + diagnosis), Claude Haiku 4.5 (guardrail), prompt caching |
 | Tools | MCP Python SDK (FastMCP), `langchain-mcp-adapters`, stdio transport |
 | Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
 | RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |

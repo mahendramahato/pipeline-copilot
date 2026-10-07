@@ -42,3 +42,9 @@ Run: `uv run python -m evals.run` (details: evals/results/latest.md).
 Caveats: one run per scenario (LLMs vary; confirm with `--repeat 3`), scenarios were
 written by the same person who built the agent, and scoring is keyword-based.
 Open issue: simple or healthy cases still use 17-18 tool calls, so the agent over-investigates.
+
+## Prompt caching (2026-10-07)
+Turned on prompt caching for the agent loop (each call re-sends the whole conversation;
+the repeated prefix is now read from cache at ~5% of the input price). Same suite:
+7/7 correct, 7/7 grounded, 0 confidently wrong. Avg agent-loop cost $0.21 → $0.09 (-57%).
+Avg tool calls 13.9 → 13.4: over-investigation is unchanged; caching only makes it cheaper.
