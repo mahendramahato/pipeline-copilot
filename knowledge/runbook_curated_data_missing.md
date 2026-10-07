@@ -2,31 +2,38 @@
 
 ## Symptoms
 - curated_* tables have no rows for recent dates, or MAX(date) is older than yesterday.
-- Raw tables DO have rows for those dates.
-- Airflow curate_day task and the Glue job both report SUCCEEDED.
-This is a silent failure: nothing alerts.
+- Raw tables DO have rows for those dates (or not: see cause 1).
+- Usually curate_day FAILED (red DAG). If the DAG is green but curated data stopped
+  updating, it is a silent failure: nothing alerts.
 
 ## Likely causes
-1. The Glue job read 0 input rows. It reads raw tables through the Glue Data Catalog.
-   Spark/Glue jobs only see partitions REGISTERED in the catalog; they ignore Athena
-   partition projection. If raw tables use projection and new partitions are not
-   registered (crawler not re-run, no ALTER TABLE ADD PARTITION), Athena sees new days
-   but the Glue job does not, so it processes nothing and still succeeds.
-2. The job wrote to a different S3 path than the curated table LOCATION.
+1. The Glue job failed on missing or empty input. Since 2026-10-06 it reads each day
+   straight from S3 and fails loudly with "No raw weather rows for <date>" or a
+   path-not-found error. Then the problem is upstream: check sync_to_s3 and the
+   streaming jobs (see runbook: check_freshness failed).
+2. The job wrote to a different S3 path than the curated table LOCATION (job succeeded,
+   curated still empty).
 3. The job processed a different date than expected (wrong --DATE argument).
+4. Seismic only: the job checks for empty WEATHER input, not seismic, so an empty seismic
+   day can still "succeed" silently.
+
+## History: the 2026-09-30 silent failure (fixed)
+Until 2026-10-06 the job read raw tables through the Glue Data Catalog. Deleting the Glue
+crawler on 2026-09-30 stopped partition registration. Athena (partition projection) still
+showed the new partitions, but the Glue/Spark job only sees registered partitions, so it
+read zero rows and still succeeded for 4 nights while curated data stopped updating.
+Fixed by reading S3 paths directly and failing on empty input; 10-01..10-06 backfilled.
+Registered catalog partitions are NO LONGER relevant to curation: they stopping at
+2026-09-30 is expected, not a problem.
 
 ## How to check
 - Compare raw vs curated counts per date with run_query.
-- Check partition projection on the raw tables with get_table_schema.
-- Compare with get_registered_partitions on the RAW tables: if registered partitions stop
-  before the missing dates, cause 1 is confirmed.
-- curate_day log: confirm the Glue run SUCCEEDED and which date target_date returned.
-- Glue job CloudWatch output log: "X raw -> Y curated" with X = 0 confirms empty input.
+- curate_day task log: did the Glue run fail (and with what error), or succeed?
+- target_date log: which date was curated.
+- If raw is missing too, go upstream: sync_to_s3 log and check_freshness.
+- Glue job CloudWatch output log: "X raw -> Y curated" (not visible to the agent's tools).
 
 ## Fix
-- Cause 1: make catalog readers see new partitions. Either register partitions after
-  sync_to_s3 (ALTER TABLE ... ADD PARTITION or MSCK REPAIR TABLE), or have the Glue job
-  read the S3 path for the date directly instead of the catalog table.
-- Then backfill every missing date (see runbook: backfill).
-- Prevent recurrence: add a DAG task after curate_day that fails if curated rows for
-  target_date = 0 while raw rows > 0.
+- Cause 1: fix the upstream problem (streaming, sync), then backfill (see runbook: backfill).
+- Causes 2-3: fix the job's output path or the --DATE argument, then backfill.
+- Verify after each backfilled day: curated rows > 0 and close to raw.

@@ -17,15 +17,18 @@ target_date -> curate_day. 1 automatic retry after 5 min. max_active_runs=1 (ext
 ## Glue job curate-daily
 Script phase4/curate_job.py (uploaded to s3://.../scripts/). Glue 5.0, 2 x G.1X workers,
 10 minute timeout, 0 retries, one concurrent run allowed.
-Reads raw tables through the Glue Data Catalog: spark.table("weather_seismic.raw_weather")
-filtered to date = RUN_DATE. Writes curated/weather, curated/seismic, curated/weather_daily
+Reads each day's raw data DIRECTLY from S3 (raw/<dataset>/date=YYYY-MM-DD/), not through
+the Glue catalog, so registered catalog partitions don't matter (they stop at 2026-09-30,
+which is expected). Fails loudly if the day's folder is missing or raw weather has 0 rows.
+Writes curated/weather, curated/seismic, curated/weather_daily
 for that one date with dynamic partition overwrite, so re-running a day is safe (idempotent).
 Prints "date=... weather: X raw -> Y curated | seismic: X raw -> Y curated" to its
 CloudWatch output log.
 
 ## Tables (Athena database weather_seismic)
 All partitioned by `date` ('YYYY-MM-DD' string).
-- raw_weather, raw_seismic: created by a Glue crawler, later switched to partition projection.
+- raw_weather, raw_seismic: created by a Glue crawler (deleted 2026-09-30, no longer needed),
+  then switched to partition projection, which is how Athena finds new days.
   raw_seismic keeps every USGS revision of a quake.
 - curated_weather: raw deduplicated (latest ingested_at per station_id + observed_at).
 - curated_seismic: latest revision per event_id.

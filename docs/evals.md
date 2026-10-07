@@ -19,6 +19,8 @@ called get_registered_partitions on curated only, never on raw.
 
 | 2026-10-05 | Phase 3 + partition tools | yes | yes | no: fetched raw_weather registered partitions (stop 09-30) but dismissed them, reasoning about Athena projection, not Spark/Glue catalog reads | had the decisive evidence and explained it away |
 
+| 2026-10-07 | Resolved | — | — | Human-confirmed cause: Glue crawler deleted 2026-09-30, so raw partitions stopped being registered; the agent's inference "a change around 09-30 stopped registration" was correct | Fixed: Glue job reads S3 paths directly and fails on empty input. Backfilled 10-01..10-06 |
+
 ## Phase 6: simulated scenario suite (2026-10-06)
 Seven failures injected into a simulated pipeline (fake tools with the real schemas,
 real SQL guardrail, real SQL in DuckDB). Runbooks for the 4 "not covered" cases were
