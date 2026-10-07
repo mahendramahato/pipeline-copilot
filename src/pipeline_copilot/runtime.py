@@ -40,6 +40,7 @@ class Agent:
     tools: list[BaseTool]
     settings: AgentSettings
     checkpointer: AsyncSqliteSaver
+    tool_servers: dict[str, str]     # tool name -> MCP server it came from (for display)
 
 
 def new_thread_id() -> str:
@@ -56,13 +57,17 @@ async def open_agent() -> AsyncIterator[Agent]:
     client = MultiServerMCPClient(MCP_SERVERS)
     async with AsyncExitStack() as stack:
         tools: list[BaseTool] = []
+        tool_servers: dict[str, str] = {}
         for name in MCP_SERVERS:
             session = await stack.enter_async_context(client.session(name))
-            tools += await load_mcp_tools(session)
+            loaded = await load_mcp_tools(session)
+            tools += loaded
+            tool_servers.update({t.name: name for t in loaded})
         checkpointer = await stack.enter_async_context(
             AsyncSqliteSaver.from_conn_string(str(settings.memory_db))
         )
-        yield Agent(build_graph(settings, tools, checkpointer), tools, settings, checkpointer)
+        graph = build_graph(settings, tools, checkpointer)
+        yield Agent(graph, tools, settings, checkpointer, tool_servers)
 
 
 def _config(thread_id: str) -> dict:
@@ -70,9 +75,11 @@ def _config(thread_id: str) -> dict:
 
 
 # --- Messages → display events (shared by live runs and loaded history) ---
-def message_events(msg: BaseMessage) -> list[dict]:
+# servers: tool name -> MCP server, so the UI can label each step by its source
+def message_events(msg: BaseMessage, servers: dict[str, str]) -> list[dict]:
     if isinstance(msg, AIMessage) and msg.tool_calls:
-        return [{"type": "tool_call", "name": c["name"], "args": c["args"]} for c in msg.tool_calls]
+        return [{"type": "tool_call", "name": c["name"], "args": c["args"],
+                 "server": servers.get(c["name"], "agent")} for c in msg.tool_calls]
     if isinstance(msg, ToolMessage):
         return [{"type": "tool_result", "name": msg.name, "chars": len(msg.text)}]
     if isinstance(msg, AIMessage):
@@ -108,7 +115,7 @@ async def run_turn(agent: Agent, thread_id: str, question: str) -> AsyncIterator
         ):
             for node, change in update.items():
                 for msg in (change or {}).get("messages", []):
-                    for event in message_events(msg):
+                    for event in message_events(msg, agent.tool_servers):
                         yield event
                 # The diagnosis is final only after verification and memory
                 if node == "remember" and (change or {}).get("diagnosis"):
@@ -132,7 +139,7 @@ async def load_thread(agent: Agent, thread_id: str) -> dict:
         if isinstance(msg, HumanMessage):
             turns.append({"question": msg.text, "events": []})
         elif turns:
-            turns[-1]["events"] += message_events(msg)
+            turns[-1]["events"] += message_events(msg, agent.tool_servers)
     if turns and state.values.get("diagnosis"):
         turns[-1]["events"].append({"type": "diagnosis", "diagnosis": state.values["diagnosis"]})
     return {"thread_id": thread_id, "turns": turns}

@@ -51,7 +51,11 @@ def _sse(event: dict) -> str:
 @app.get("/api/health")
 async def health() -> dict:
     agent = app.state.agent
-    return {"status": "ok", "model": agent.settings.llm_model, "tools": [t.name for t in agent.tools]}
+    servers: dict[str, list[str]] = {}
+    for tool, server in agent.tool_servers.items():
+        servers.setdefault(server, []).append(tool)
+    return {"status": "ok", "model": agent.settings.llm_model,
+            "tools": [t.name for t in agent.tools], "servers": servers}
 
 
 @app.get("/api/threads")

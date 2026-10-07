@@ -5,13 +5,23 @@ Pure code, no LLM judge: the same diagnosis always gets the same score.
 from evals.scenario import Scenario
 
 OPUS_PRICE = (4.00, 20.00)   # $ per 1M input / output tokens, Claude Opus 5.5
+CACHE_READ_PRICE = 0.20      # $ per 1M cached input tokens read
+CACHE_WRITE_PRICE = 5.00     # $ per 1M input tokens written to the cache (1.25x input)
+
+
+def _input_cost(u: dict) -> float:
+    # input_tokens includes cached tokens; split them out so caching shows in the cost
+    d = u.get("input_token_details") or {}
+    read, write = d.get("cache_read", 0), d.get("cache_creation", 0)
+    uncached = u["input_tokens"] - read - write
+    return uncached * OPUS_PRICE[0] + read * CACHE_READ_PRICE + write * CACHE_WRITE_PRICE
 
 
 def score(s: Scenario, final_state: dict) -> dict:
     messages = final_state["messages"]
     tools_used = [c["name"] for m in messages for c in (getattr(m, "tool_calls", None) or [])]
     usage = [m.usage_metadata for m in messages if getattr(m, "usage_metadata", None)]
-    tokens_in = sum(u["input_tokens"] for u in usage)
+    input_cost = sum(_input_cost(u) for u in usage)
     tokens_out = sum(u["output_tokens"] for u in usage)
 
     base = {
@@ -21,7 +31,7 @@ def score(s: Scenario, final_state: dict) -> dict:
         "tool_calls": len(tools_used),
         "tools_used": tools_used,
         # agent-loop tokens only: excludes the Haiku guardrail and the diagnose call
-        "cost_usd": round((tokens_in * OPUS_PRICE[0] + tokens_out * OPUS_PRICE[1]) / 1e6, 3),
+        "cost_usd": round((input_cost + tokens_out * OPUS_PRICE[1]) / 1e6, 3),
     }
 
     d = final_state.get("diagnosis")

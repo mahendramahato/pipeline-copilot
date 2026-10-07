@@ -106,7 +106,12 @@ def build_graph(settings: AgentSettings, tools: list[BaseTool], checkpointer=Non
     # request, so Claude knows what it can call. The API key is read from
     # ANTHROPIC_API_KEY by the SDK; we never pass it around.
     llm = ChatAnthropic(model=settings.llm_model, max_tokens=16000)
-    llm_with_tools = llm.bind_tools(all_tools)
+    # Prompt caching: every agent call resends the system prompt, the tool schemas
+    # and the whole conversation so far. Top-level cache_control tells the API to
+    # cache everything up to the last block, so the next call reads that repeated
+    # prefix at ~5% of the input price instead of paying full price again.
+    # The cache lives ~5 minutes, which covers an investigation's back-to-back calls.
+    llm_with_tools = llm.bind_tools(all_tools, cache_control={"type": "ephemeral"})
 
     # --- Node 1: agent ---
     # async because the graph now runs with astream(): MCP tools are
