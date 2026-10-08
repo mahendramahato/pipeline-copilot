@@ -9,18 +9,18 @@ const HEAD = [
   '......OOOO......',
   '......OCCO......',
   '.......OO.......',
-  '..OOOOOOOOOOOO..',
-  '.OLLLBBBBBBBBBO.',
-  'OLLBBBBBBBBBBBDO',
-  'OLBOOOOOOOOOOBDO',
-  'OBBOSSSSSSSSOBDO',
-  'OBBOSSSSSSSSOBDO',
-  'OBBOSSSSSSSSOBDO',
-  'OBBOSSSSSSSSOBDO',
-  'OBBOSSSSSSSSOBDO',
-  'OBBOOOOOOOOOOBDO',
-  '.OBBBBBBBBBBBDO.',
-  '..OOOOOOOOOOOO..',
+  '.....OOOOOO.....',
+  '...OOBBBBLLOO...',
+  '..OBBBBBBBBLLO..',
+  '.OBBBOOOOOOBBLO.',
+  'OLBBOSSSSSSOBBDO',
+  'OLBOSSSSSSSSOBDO',
+  'OLBOSSSSSSSSOBDO',
+  'OLBOSSSSSSSSOBDO',
+  'OLBBOSSSSSSOBBDO',
+  '.OBBBOOOOOOBBDO.',
+  '..ODBBBBBBBBDO..',
+  '...OOOOOOOOOO...',
 ]
 // Rows 15-18: shoulders and arms, with two frames of a wave
 const ARMS = [
@@ -68,18 +68,18 @@ const SIDE_HEAD = [
   '........OOOO....',
   '........OCCO....',
   '.........OO.....',
-  '...OOOOOOOOOOO..',
-  '..ODBBBBBBBBLLO.',
-  '.ODBBBBBBBBBBBLO',
-  '.ODBBBBBBOOOOOOO',
-  '.ODBOOOBBOSSSSSO',
-  '.ODOLLLOBOSSGSSO',
-  '.ODOLGLOBOSSSGSO',
-  '.ODOLLLOBOSSGSSO',
-  '.ODBOOOBBOSSSSSO',
-  '.ODBBBBBBOOOOOOO',
-  '..ODDBBBBBBBBBO.',
-  '...OOOOOOOOOOO..',
+  '.....OOOOOOO....',
+  '...OODBBBBBLOO..',
+  '..ODBBBBBBBBBLO.',
+  '.ODBBBBBBBOOOOO.',
+  'ODBOOOBBBOSSSSOO',
+  'ODOLLLOBBOSSGSSO',
+  'ODOLGLOBBOSSSGSO',
+  'ODOLLLOBBOSSGSSO',
+  'ODBOOOBBBOSSSSOO',
+  '.ODBBBBBBBOOOOO.',
+  '..ODDBBBBBBBBO..',
+  '....OOOOOOOOO...',
 ]
 const SIDE_TORSO = [
   '.....OBBBBO.....',
@@ -153,9 +153,9 @@ const SPRITE = {
   faces: Object.fromEntries(Object.entries(FACES).map(([k, rows]) => [k, pixels(rows, 7, 4)])),
 }
 
-const BOT_W = 48                                      // px, matches .pixelbot in styles.css
-const SPEED = { stroll: 34, walk: 54, hurry: 108 }    // px per second
-const CYCLE_PX = 40                                   // ground covered by one walk cycle (two steps)
+const BOT_W = 64                                      // px, matches .pixelbot in styles.css
+const SPEED = { stroll: 44, walk: 70, hurry: 140 }    // px per second
+const CYCLE_PX = 54                                   // ground covered by one walk cycle (two steps)
 const rand = (a, b) => a + Math.random() * (b - a)
 const pick = (weighted) => {
   let r = Math.random() * weighted.reduce((s, [w]) => s + w, 0)
