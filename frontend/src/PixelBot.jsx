@@ -5,6 +5,12 @@ import { useEffect, useRef, useState } from 'react'
 // stops to watch while you type and paces with a "thinking" face while the agent works.
 // The sprite is drawn from the grids below as SVG pixels (one character = one pixel).
 
+// The sprite is 24x35 pixels: a round helmet head on a broader body.
+const W = 24
+const ROWS = 35
+const pad = (row, left) => ('.'.repeat(left) + row).padEnd(W, '.')
+
+// Front view (standing, waving, hopping, dozing)
 const HEAD = [
   '......OOOO......',
   '......OCCO......',
@@ -22,38 +28,37 @@ const HEAD = [
   '..ODBBBBBBBBDO..',
   '...OOOOOOOOOO...',
 ]
-// Rows 15-18: shoulders and arms, with two frames of a wave
-const ARMS = [
-  '....OBBBBBBO....',
-  '...OBBOGGOBDO...',
-  '..OBOBBBBBBODBO.',
-  '..OOOBBBBBBDOOO.',
+// Rows 15-26: neck and torso, broader than the head, with a chest panel
+const BODY = [
+  '..........OOOO..........',
+  '...OOOOOOOOOOOOOOOOOO...',
+  '...OLLBBBBBBBBBBBBBDO...',
+  '...OLBBBBBBBBBBBBBBDO...',
+  '...OLBBOOOOOOOOOOBBDO...',
+  '...OLBBOSGGSSKKSOBBDO...',
+  '...OLBBOSSSSSSSSOBBDO...',
+  '...OLBBOOOOOOOOOOBBDO...',
+  '...OLBBBBBBBBBBBBBBDO...',
+  '...OBBBBBBBBBBBBBBBDO...',
+  '....ODDDDDDDDDDDDDDO....',
+  '.....OOOOOOOOOOOOOO.....',
 ]
-const WAVE_UP = [
-  '....OBBBBBBO.OBO',
-  '...OBBOGGOBDOBO.',
-  '..OBOBBBBBBODO..',
-  '..OOOBBBBBBDO...',
-]
-const WAVE_OUT = [
-  '....OBBBBBBO....',
-  '...OBBOGGOBDOOOO',
-  '..OBOBBBBBBODBBO',
-  '..OOOBBBBBBDOOOO',
-]
-const TORSO = [
-  '....OBBBBBBO....',
-  '....OOOOOOOO....',
-]
-// Rows 21-25: legs, standing
+// Arms hang from the shoulders (rows 17-25): the left one is part of the body, the right one can wave
+const ARM = ['OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OLO', 'OLO', 'OOO']
+const WAVE_HIGH = ['OOO', 'OLO', 'OLO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO']   // from row 6
+const WAVE_LOW = ['OOO', 'OLO', 'OLO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO']                // from row 8
+// Rows 27-34: legs and feet
 const LEGS = [
-  '....OBO..OBO....',
-  '....OBO..OBO....',
-  '....OBO..OBO....',
-  '....ODO..ODO....',
-  '...OOOO..OOOO...',
+  '......OBBO....OBBO......',
+  '......OBBO....OBBO......',
+  '......OBBO....OBBO......',
+  '......OBBO....OBBO......',
+  '......ODDO....ODDO......',
+  '......ODDO....ODDO......',
+  '.....OBBBBO..OBBBBO.....',
+  '.....OOOOOO..OOOOOO.....',
 ]
-// Faces drawn on the 8x5 screen (columns 4-11, rows 7-11); they can shift a pixel to look around
+// Faces drawn on the 8x5 screen (columns 8-15, rows 7-11); they can shift a pixel to look around
 const FACES = {
   prompt: ['........', '.G......', '..G.....', '.G..KKK.', '........'],
   happy: ['........', '.G....G.', 'G.G..G.G', '........', '........'],
@@ -82,42 +87,51 @@ const SIDE_HEAD = [
   '....OOOOOOOOO...',
 ]
 const SIDE_TORSO = [
-  '.....OBBBBO.....',
-  '....OBBBBBBO....',
-  '....OBBBBBBGO...',
-  '....OBBBBBBO....',
-  '.....ODDDDO.....',
+  '.....OOOOOOOOOOOOOO.....',
+  '.....ODBBBBBBBBBBLO.....',
+  '.....ODBBBBBBBBBBBO.....',
+  '.....ODBBBBBBBBBOGO.....',
+  '.....ODBBBBBBBBBOGO.....',
+  '.....ODBBBBBBBBBBBO.....',
+  '.....ODBBBBBBBBBBBO.....',
+  '.....ODBBBBBBBBBBBO.....',
+  '.....ODBBBBBBBBBBBO.....',
+  '......ODDDDDDDDDDO......',
+  '.......OOOOOOOOOO.......',
 ]
-const SIDE_ARM = {
-  down: ['......OLO.......', '......OLO.......', '......OLO.......', '......OLO.......'],
-  fwd: ['......OLO.......', '.......OLO......', '........OLO.....', '.........OLO....'],
-  back: ['......OLO.......', '.....OLO........', '....OLO.........', '...OLO..........'],
-}
-const SIDE_LEG = {
-  straight: ['......OBO.......', '......OBO.......', '......OBO.......', '......OBO.......', '......OBO.......', '......OBBO......'],
-  fwd: ['......OBO.......', '.......OBO......', '........OBO.....', '.........OBO....', '.........OBBO...'],
-  back: ['......OBO.......', '.....OBO........', '....OBO.........', '...OBO..........', '..OBBO..........'],
-}
-const ROWS = 26
+// Near arm from the shoulder down, swinging forward (+1) or back (-1) by these offsets per row
+const ARM_SWING = [0, 1, 1, 2, 3, 3, 4, 5, 6]
+const sideArm = (swing) => ARM_SWING.map((o, i) => pad(i < 8 ? 'OLLO' : 'OOOO', 10 + swing * o))
+// Legs from the hip down to the foot on the ground
+const LEG_REACH = [0, 1, 1, 2, 3, 3, 4]
+const sideLeg = (kind) => kind === 'straight'
+  ? [...Array(7).fill(pad('OBBO', 10)), pad('OBBBBBO', 10)]
+  : [...LEG_REACH.map((o) => pad('OBBO', 10 + (kind === 'fwd' ? o : -o))), pad('OBBBBBO', kind === 'fwd' ? 14 : 5)]
 
 // Lay transparent ('.') layers over each other into one grid
-function sideFrame(near, far, arm) {
-  const g = Array.from({ length: ROWS }, () => Array(16).fill('.'))
-  const put = (top, layer) => layer.forEach((row, y) => [...row].forEach((c, x) => { if (c !== '.') g[top + y][x] = c }))
-  const top = near === 'straight' ? 0 : 1
-  put(ROWS - SIDE_LEG[far].length, SIDE_LEG[far].map((r) => r.replaceAll('B', 'D')))
-  put(ROWS - SIDE_LEG[near].length, SIDE_LEG[near])
-  put(top, SIDE_HEAD)
-  put(top + 15, SIDE_TORSO)
-  put(top + 16, SIDE_ARM[arm])
+function layered(layers) {
+  const g = Array.from({ length: ROWS }, () => Array(W).fill('.'))
+  for (const [top, layer] of layers) {
+    layer.forEach((row, y) => [...row].forEach((c, x) => { if (c !== '.') g[top + y][x] = c }))
+  }
   return g.map((r) => r.join(''))
 }
+function sideFrame(near, far, swing) {
+  const top = near === 'straight' ? 0 : 1
+  const farLeg = sideLeg(far).map((r) => r.replaceAll('B', 'D'))
+  const nearLeg = sideLeg(near)
+  return layered([
+    [ROWS - farLeg.length, farLeg], [ROWS - nearLeg.length, nearLeg],
+    [top, SIDE_HEAD.map((r) => pad(r, 4))], [top + 16, SIDE_TORSO], [top + 17, sideArm(swing)],
+  ])
+}
 const WALK_CYCLE = [
-  sideFrame('fwd', 'back', 'back'),
-  sideFrame('straight', 'straight', 'down'),
-  sideFrame('back', 'fwd', 'fwd'),
-  sideFrame('straight', 'straight', 'down'),
+  sideFrame('fwd', 'back', -1),
+  sideFrame('straight', 'straight', 0),
+  sideFrame('back', 'fwd', 1),
+  sideFrame('straight', 'straight', 0),
 ]
+const FRONT = layered([[0, HEAD.map((r) => pad(r, 4))], [15, BODY], [17, ARM], [27, LEGS]])
 
 const COLORS = { O: '#1e1b4b', B: '#6366f1', L: '#a5b4fc', D: '#4338ca', S: '#111433', G: '#67e8f9', C: '#67e8f9', K: '#67e8f9' }
 
@@ -143,17 +157,15 @@ function pixels(rows, top = 0, left = 0) {
 }
 
 const SPRITE = {
-  head: pixels(HEAD),
-  arms: pixels(ARMS, 15),
-  waveUp: pixels(WAVE_UP, 15),
-  waveOut: pixels(WAVE_OUT, 15),
-  torso: pixels(TORSO, 19),
-  legs: pixels(LEGS, 21),
+  front: pixels(FRONT),
+  arm: pixels(ARM, 17, 21),
+  waveHigh: pixels(WAVE_HIGH, 6, 21),
+  waveLow: pixels(WAVE_LOW, 8, 21),
   walk: WALK_CYCLE.map((rows) => pixels(rows)),
-  faces: Object.fromEntries(Object.entries(FACES).map(([k, rows]) => [k, pixels(rows, 7, 4)])),
+  faces: Object.fromEntries(Object.entries(FACES).map(([k, rows]) => [k, pixels(rows, 7, 8)])),
 }
 
-const BOT_W = 64                                      // px, matches .pixelbot in styles.css
+const BOT_W = 72                                      // px, matches .pixelbot in styles.css
 const SPEED = { stroll: 44, walk: 70, hurry: 140 }    // px per second
 const CYCLE_PX = 54                                   // ground covered by one walk cycle (two steps)
 const rand = (a, b) => a + Math.random() * (b - a)
@@ -272,19 +284,17 @@ export default function PixelBot({ busy = false, typing = false }) {
           '--dir': s.dir, '--cycle': `${s.cycle ?? 1}s`,
         }}
       >
-        <svg className="pb-sprite" viewBox={`0 0 16 ${ROWS}`} shapeRendering="crispEdges">
+        <svg className="pb-sprite" viewBox={`0 0 ${W} ${ROWS}`} shapeRendering="crispEdges">
           {s.act === 'walk' ? (
             SPRITE.walk.map((frame, i) => <g key={i} className={`pb-frame f${i}`}>{frame}</g>)
           ) : (
             <>
-              {SPRITE.head}
+              {SPRITE.front}
               <g transform={`translate(${s.look} ${s.lookDown})`}>{SPRITE.faces[s.face]}</g>
               {s.act === 'wave'
-                ? <><g className="pb-wave-a">{SPRITE.waveUp}</g><g className="pb-wave-b">{SPRITE.waveOut}</g></>
-                : SPRITE.arms}
-              {SPRITE.torso}
-              {SPRITE.legs}
-              {s.act === 'doze' && <text className="pb-z" x="13" y="3">z</text>}
+                ? <><g className="pb-wave-a">{SPRITE.waveHigh}</g><g className="pb-wave-b">{SPRITE.waveLow}</g></>
+                : SPRITE.arm}
+              {s.act === 'doze' && <text className="pb-z" x="18" y="4">z</text>}
             </>
           )}
         </svg>
