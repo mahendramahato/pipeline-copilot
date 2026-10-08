@@ -1,0 +1,21 @@
+[mcp_servers.airflow]
+command = "uv"
+args = [
+    "--directory",
+    ".",
+    "run",
+    "python",
+    "-m",
+    "pipeline_copilot.mcp_servers.airflow_server",
+]
+
+[mcp_servers.knowledge]
+command = "uv"
+args = [
+    "--directory",
+    ".",
+    "run",
+    "python",
+    "-m",
+    "pipeline_copilot.mcp_servers.knowledge_server",
+]
