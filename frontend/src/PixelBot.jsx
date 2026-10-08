@@ -45,15 +45,13 @@ const TORSO = [
   '....OBBBBBBO....',
   '....OOOOOOOO....',
 ]
-const LEGS_TOGETHER = [
+// Rows 21-25: legs, standing
+const LEGS = [
+  '....OBO..OBO....',
+  '....OBO..OBO....',
   '....OBO..OBO....',
   '....ODO..ODO....',
   '...OOOO..OOOO...',
-]
-const LEGS_APART = [
-  '...OBO....OBO...',
-  '..OBO......ODO..',
-  '..OOOO....OOOO..',
 ]
 // Faces drawn on the 8x5 screen (columns 4-11, rows 7-11); they can shift a pixel to look around
 const FACES = {
@@ -62,6 +60,64 @@ const FACES = {
   thinking: ['........', '........', '........', '.G.G.G..', '........'],
   sleepy: ['........', '........', 'GGG..GGG', '........', '........'],
 }
+
+// Side view for walking (facing right; flipped to walk left). A walk cycle is four frames:
+// stride, legs passing, the other stride, passing again. The far leg is darker, the near arm
+// swings against the near leg, and the body dips on a stride and rises as the legs pass.
+const SIDE_HEAD = [
+  '........OOOO....',
+  '........OCCO....',
+  '.........OO.....',
+  '...OOOOOOOOOOO..',
+  '..ODBBBBBBBBLLO.',
+  '.ODBBBBBBBBBBBLO',
+  '.ODBBBBBBOOOOOOO',
+  '.ODBOOOBBOSSSSSO',
+  '.ODOLLLOBOSSGSSO',
+  '.ODOLGLOBOSSSGSO',
+  '.ODOLLLOBOSSGSSO',
+  '.ODBOOOBBOSSSSSO',
+  '.ODBBBBBBOOOOOOO',
+  '..ODDBBBBBBBBBO.',
+  '...OOOOOOOOOOO..',
+]
+const SIDE_TORSO = [
+  '.....OBBBBO.....',
+  '....OBBBBBBO....',
+  '....OBBBBBBGO...',
+  '....OBBBBBBO....',
+  '.....ODDDDO.....',
+]
+const SIDE_ARM = {
+  down: ['......OLO.......', '......OLO.......', '......OLO.......', '......OLO.......'],
+  fwd: ['......OLO.......', '.......OLO......', '........OLO.....', '.........OLO....'],
+  back: ['......OLO.......', '.....OLO........', '....OLO.........', '...OLO..........'],
+}
+const SIDE_LEG = {
+  straight: ['......OBO.......', '......OBO.......', '......OBO.......', '......OBO.......', '......OBO.......', '......OBBO......'],
+  fwd: ['......OBO.......', '.......OBO......', '........OBO.....', '.........OBO....', '.........OBBO...'],
+  back: ['......OBO.......', '.....OBO........', '....OBO.........', '...OBO..........', '..OBBO..........'],
+}
+const ROWS = 26
+
+// Lay transparent ('.') layers over each other into one grid
+function sideFrame(near, far, arm) {
+  const g = Array.from({ length: ROWS }, () => Array(16).fill('.'))
+  const put = (top, layer) => layer.forEach((row, y) => [...row].forEach((c, x) => { if (c !== '.') g[top + y][x] = c }))
+  const top = near === 'straight' ? 0 : 1
+  put(ROWS - SIDE_LEG[far].length, SIDE_LEG[far].map((r) => r.replaceAll('B', 'D')))
+  put(ROWS - SIDE_LEG[near].length, SIDE_LEG[near])
+  put(top, SIDE_HEAD)
+  put(top + 15, SIDE_TORSO)
+  put(top + 16, SIDE_ARM[arm])
+  return g.map((r) => r.join(''))
+}
+const WALK_CYCLE = [
+  sideFrame('fwd', 'back', 'back'),
+  sideFrame('straight', 'straight', 'down'),
+  sideFrame('back', 'fwd', 'fwd'),
+  sideFrame('straight', 'straight', 'down'),
+]
 
 const COLORS = { O: '#1e1b4b', B: '#6366f1', L: '#a5b4fc', D: '#4338ca', S: '#111433', G: '#67e8f9', C: '#67e8f9', K: '#67e8f9' }
 
@@ -86,20 +142,20 @@ function pixels(rows, top = 0, left = 0) {
   return rects
 }
 
-const ROWS = HEAD.length + ARMS.length + TORSO.length + LEGS_TOGETHER.length
 const SPRITE = {
   head: pixels(HEAD),
   arms: pixels(ARMS, 15),
   waveUp: pixels(WAVE_UP, 15),
   waveOut: pixels(WAVE_OUT, 15),
   torso: pixels(TORSO, 19),
-  legsA: pixels(LEGS_TOGETHER, 21),
-  legsB: pixels(LEGS_APART, 21),
+  legs: pixels(LEGS, 21),
+  walk: WALK_CYCLE.map((rows) => pixels(rows)),
   faces: Object.fromEntries(Object.entries(FACES).map(([k, rows]) => [k, pixels(rows, 7, 4)])),
 }
 
-const BOT_W = 40                                      // px, matches .pixelbot in styles.css
-const SPEED = { stroll: 30, walk: 52, hurry: 105 }    // px per second
+const BOT_W = 48                                      // px, matches .pixelbot in styles.css
+const SPEED = { stroll: 34, walk: 54, hurry: 108 }    // px per second
+const CYCLE_PX = 40                                   // ground covered by one walk cycle (two steps)
 const rand = (a, b) => a + Math.random() * (b - a)
 const pick = (weighted) => {
   let r = Math.random() * weighted.reduce((s, [w]) => s + w, 0)
@@ -107,7 +163,7 @@ const pick = (weighted) => {
   return weighted[0][1]
 }
 
-const REST = { act: 'stand', face: 'prompt', look: 0, lookDown: 0, dur: 0 }
+const REST = { act: 'stand', face: 'prompt', look: 0, lookDown: 0, dur: 0, cycle: null }
 
 export default function PixelBot({ busy = false, typing = false }) {
   const laneRef = useRef(null)
@@ -120,6 +176,7 @@ export default function PixelBot({ busy = false, typing = false }) {
     let timer
     let queue = []
     let last = 'stand'
+    let prev = { act: 'stand', dir: 1 }
 
     const maxX = () => Math.max(0, (laneRef.current?.clientWidth ?? 0) - BOT_W)
     // Where the bot is right now, even halfway through a walk
@@ -133,6 +190,7 @@ export default function PixelBot({ busy = false, typing = false }) {
       const from = here()
       const to = pose.x ?? from
       path.current = { from, to, start: performance.now(), ms: (pose.dur ?? 0) * 1000 }
+      prev = { act: pose.act ?? 'stand', dir: pose.dir ?? prev.dir }
       setS((p) => ({ ...p, ...REST, ...pose, x: to }))
       timer = setTimeout(next, ms)
     }
@@ -141,7 +199,10 @@ export default function PixelBot({ busy = false, typing = false }) {
       x = Math.min(Math.max(x, 0), maxX())
       const dur = Math.abs(x - from) / speed
       const dir = x >= from ? 1 : -1
-      beat({ act: 'walk', x, dir, dur, face, look: dir }, dur * 1000 + 50)
+      const walk = [{ act: 'walk', x, dir, dur, face, cycle: CYCLE_PX / speed }, dur * 1000 + 50]
+      // Turning around: face the front for a moment instead of flipping mid-stride
+      if (prev.act === 'walk' && prev.dir !== dir) { queue.unshift(walk); return beat({ look: dir, dir }, 260) }
+      beat(...walk)
     }
     // A stroll to somewhere at least a little way off
     const stroll = (speed) => {
@@ -206,18 +267,26 @@ export default function PixelBot({ busy = false, typing = false }) {
     <div className="walker" ref={laneRef} aria-hidden="true">
       <div
         className={`pixelbot act-${s.act}`}
-        style={{ transform: `translateX(${s.x}px)`, transition: `transform ${s.dur}s linear`, '--dir': s.dir }}
+        style={{
+          transform: `translateX(${s.x}px)`, transition: `transform ${s.dur}s linear`,
+          '--dir': s.dir, '--cycle': `${s.cycle ?? 1}s`,
+        }}
       >
         <svg className="pb-sprite" viewBox={`0 0 16 ${ROWS}`} shapeRendering="crispEdges">
-          {SPRITE.head}
-          <g transform={`translate(${s.look} ${s.lookDown})`}>{SPRITE.faces[s.face]}</g>
-          {s.act === 'wave'
-            ? <><g className="pb-wave-a">{SPRITE.waveUp}</g><g className="pb-wave-b">{SPRITE.waveOut}</g></>
-            : SPRITE.arms}
-          {SPRITE.torso}
-          <g className="pb-legs-a">{SPRITE.legsA}</g>
-          {s.act === 'walk' && <g className="pb-legs-b">{SPRITE.legsB}</g>}
-          {s.act === 'doze' && <text className="pb-z" x="13" y="3">z</text>}
+          {s.act === 'walk' ? (
+            SPRITE.walk.map((frame, i) => <g key={i} className={`pb-frame f${i}`}>{frame}</g>)
+          ) : (
+            <>
+              {SPRITE.head}
+              <g transform={`translate(${s.look} ${s.lookDown})`}>{SPRITE.faces[s.face]}</g>
+              {s.act === 'wave'
+                ? <><g className="pb-wave-a">{SPRITE.waveUp}</g><g className="pb-wave-b">{SPRITE.waveOut}</g></>
+                : SPRITE.arms}
+              {SPRITE.torso}
+              {SPRITE.legs}
+              {s.act === 'doze' && <text className="pb-z" x="13" y="3">z</text>}
+            </>
+          )}
         </svg>
       </div>
     </div>
