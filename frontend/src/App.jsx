@@ -349,7 +349,7 @@ export default function App() {
 
         {view.kind === 'chat' && owner ? (
           <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input) }}>
-            <PixelBot busy={busy} />
+            <PixelBot busy={busy} typing={input.trim().length > 0} />
             <div className="composer-box">
               <textarea
                 ref={inputRef}

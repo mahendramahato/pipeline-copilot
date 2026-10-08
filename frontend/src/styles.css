@@ -514,42 +514,41 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .monitor-time { font-size: 11px; color: var(--sidebar-muted); }
 .monitor-fail { font-size: 12px; color: #fca5a5; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
-/* ---------- Pixel bot walking above the composer (PixelBot.jsx) ----------
-   The lane spans the composer; the bot walks to the right end and back, leaning the
-   way it walks, stepping between two leg frames and bobbing on each step. */
+/* ---------- Pixel bot above the composer (PixelBot.jsx) ----------
+   PixelBot.jsx decides what it does and moves it (transform: translateX); these rules
+   animate the poses: stepping legs and a lean while walking, a wave, a hop, a doze. */
 .walker { position: relative; height: 60px; margin-bottom: -1px; pointer-events: none; }
-.pixelbot {
-  position: absolute; bottom: 0; left: 0; width: 40px; height: 60px;
-  transform-origin: 50% 100%;
-  animation: pb-walk 18s linear infinite, pb-lean 18s linear infinite;
-}
-.pb-sprite { display: block; width: 100%; height: 100%; animation: pb-bob .5s infinite; }
-.pb-legs-a { animation: pb-frame-a .5s infinite; }
-.pb-legs-b { animation: pb-frame-b .5s infinite; }
+.pixelbot { position: absolute; bottom: 0; left: 0; width: 40px; height: 60px; will-change: transform; }
+.pb-sprite { display: block; width: 100%; height: 100%; overflow: visible; transform-origin: 50% 100%; transition: rotate .2s; }
 .pb-cursor { animation: pb-blink 1s steps(1) infinite; }
 
-/* hurries while an investigation runs */
-.walker.busy .pixelbot { animation-duration: 8s, 8s; }
-.walker.busy .pb-sprite, .walker.busy .pb-legs-a, .walker.busy .pb-legs-b { animation-duration: .3s; }
+.act-walk .pb-sprite { rotate: calc(var(--dir) * 4deg); animation: pb-bob .5s infinite; }
+.act-walk .pb-legs-a { animation: pb-frame-a .5s infinite; }
+.act-walk .pb-legs-b { animation: pb-frame-b .5s infinite; }
+.pb-wave-a { animation: pb-frame-a .4s infinite; }
+.pb-wave-b { animation: pb-frame-b .4s infinite; }
+.act-hop .pb-sprite { animation: pb-hop .65s ease-out 1; }
+.act-doze .pb-sprite { animation: pb-doze 2.4s ease-in-out infinite; }
+.pb-z { font: 700 5px var(--mono); fill: #a5b4fc; animation: pb-z 1.6s ease-out infinite; }
 
-@keyframes pb-walk {
-  0% { left: 0; }
-  50% { left: calc(100% - 40px); }
-  100% { left: 0; }
-}
-@keyframes pb-lean {
-  0%, 49.9% { transform: rotate(4deg); }
-  50%, 100% { transform: rotate(-4deg); }
-}
-@keyframes pb-bob {
-  0%, 49.9% { transform: translateY(-2.5px); }
-  50%, 100% { transform: translateY(0); }
-}
+@keyframes pb-bob { 0%, 49.9% { translate: 0 -2.5px; } 50%, 100% { translate: 0 0; } }
 @keyframes pb-frame-a { 0%, 49.9% { opacity: 1; } 50%, 100% { opacity: 0; } }
 @keyframes pb-frame-b { 0%, 49.9% { opacity: 0; } 50%, 100% { opacity: 1; } }
 @keyframes pb-blink { 0% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes pb-hop {
+  0% { translate: 0 0; scale: 1 1; }
+  18% { translate: 0 0; scale: 1.08 .9; }
+  50% { translate: 0 -16px; scale: .96 1.05; }
+  82% { translate: 0 0; scale: 1.06 .93; }
+  100% { translate: 0 0; scale: 1 1; }
+}
+@keyframes pb-doze { 0%, 100% { rotate: -2deg; } 50% { rotate: 3deg; translate: 0 1px; } }
+@keyframes pb-z {
+  0% { opacity: 0; translate: 0 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; translate: 3px -5px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .pixelbot, .pb-sprite, .pb-legs-a, .pb-legs-b, .pb-cursor { animation: none; }
-  .pb-legs-b { opacity: 0; }
+  .pb-sprite, .pb-cursor, .pb-legs-a, .pb-legs-b, .pb-wave-a, .pb-wave-b, .pb-z { animation: none !important; }
 }
