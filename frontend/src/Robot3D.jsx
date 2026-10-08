@@ -49,6 +49,10 @@ const Defs = () => (
       <stop offset="0" stopColor="#e9d5ff" />
       <stop offset="1" stopColor="#a78bfa" />
     </linearGradient>
+    <radialGradient id="r3-boom-ball" cx="40%" cy="35%" r="70%">
+      <stop offset="0" stopColor="#f3e8ff" />
+      <stop offset="1" stopColor="#a78bfa" />
+    </radialGradient>
     <radialGradient id="r3-mic" cx="40%" cy="30%" r="75%">
       <stop offset="0" stopColor="#6b6585" />
       <stop offset="1" stopColor="#25202f" />
@@ -74,6 +78,29 @@ function Layer({ z, unit, back = false, solid = false, side = 0, children }) {
     <svg className={`r3-layer ${solid ? 'solid' : ''}`} viewBox="0 0 120 120" style={style}>
       {children}
     </svg>
+  )
+}
+
+// Point on a cubic bezier, in viewBox units relative to the head center (z = face plane)
+const bez = (p, t) => p[0].map((_, k) => {
+  const u = 1 - t
+  return u * u * u * p[0][k] + 3 * u * u * t * p[1][k] + 3 * u * t * t * p[2][k] + t * t * t * p[3][k]
+})
+const BOOM_PATH = [[44, 4, -DEPTH / 2], [54, 30, -12], [46, 44, 4], [28, 41, 9]]
+const BOOM = Array.from({ length: 36 }, (_, i) => bez(BOOM_PATH, i / 35))
+const MIC = [22, 41, 10]
+
+// A small sphere made of three crossed discs, so it reads as round from any angle
+function Ball({ x, y, z, r, unit, fill }) {
+  const d = 2 * r * unit
+  return (
+    <div className="r3-ball" style={{ transform: `translate3d(${x * unit}px, ${y * unit}px, ${z * unit}px)` }}>
+      {['', 'rotateY(90deg)', 'rotateX(90deg)'].map((t) => (
+        <svg key={t} viewBox="0 0 2 2" style={{ width: d, height: d, margin: -d / 2, transform: t }}>
+          <circle cx="1" cy="1" r="1" fill={fill} />
+        </svg>
+      ))}
+    </div>
   )
 }
 
@@ -216,13 +243,11 @@ export default function Robot3D({ size = 120 }) {
             </g>
           </Layer>
 
-          {/* mic boom swings out in front of the chin */}
-          <Layer z={9} unit={unit} solid>
-            <path d="M99 66 Q112 92 90 99" stroke="#6d28d9" strokeWidth="5" strokeLinecap="round" fill="none" opacity=".35" />
-            <path d="M99 66 Q112 92 90 99" stroke="url(#r3-boom)" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-            <ellipse cx="83" cy="100" rx="10" ry="6.5" transform="rotate(-12 83 100)" fill="url(#r3-mic)" />
-            <ellipse cx="80" cy="98" rx="3.5" ry="1.6" fill="#fff" opacity=".25" />
-          </Layer>
+          {/* mic boom: a chain of 3D beads from the right ear cup round to the chin */}
+          {BOOM.map(([x, y, z], i) => (
+            <Ball key={i} x={x} y={y} z={z} r={2} unit={unit} fill="url(#r3-boom-ball)" />
+          ))}
+          <Ball x={MIC[0]} y={MIC[1]} z={MIC[2]} r={6.5} unit={unit} fill="url(#r3-mic)" />
         </div>
       </div>
     </div>

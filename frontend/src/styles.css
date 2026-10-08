@@ -577,3 +577,5 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   .robot3d .r3-float, .robot3d .r3-shadow, .robot3d .r3-eyes { animation: none; }
 }
+.robot3d .r3-ball { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-style: preserve-3d; }
+.robot3d .r3-ball svg { position: absolute; display: block; overflow: visible; }
