@@ -28,25 +28,27 @@ const HEAD = [
   '..ODBBBBBBBBDO..',
   '...OOOOOOOOOO...',
 ]
-// Rows 15-26: neck and torso, broader than the head, with a chest panel
+// Rows 15-27: neck and a round body, broader than the head, with a small chest screen
 const BODY = [
   '..........OOOO..........',
-  '...OOOOOOOOOOOOOOOOOO...',
-  '...OLLBBBBBBBBBBBBBDO...',
-  '...OLBBBBBBBBBBBBBBDO...',
-  '...OLBBOOOOOOOOOOBBDO...',
-  '...OLBBOSGGSSKKSOBBDO...',
-  '...OLBBOSSSSSSSSOBBDO...',
-  '...OLBBOOOOOOOOOOBBDO...',
-  '...OLBBBBBBBBBBBBBBDO...',
+  '.......OOOOOOOOOO.......',
+  '.....OOLLBBBBBBBBOO.....',
+  '....OLLBBBBBBBBBBBDO....',
+  '....OLBBBBOOOOBBBBDO....',
+  '...OLBBBBOSGKSOBBBBDO...',
+  '...OLBBBBOSSSSOBBBBDO...',
+  '...OLBBBBBOOOOBBBBBDO...',
   '...OBBBBBBBBBBBBBBBDO...',
-  '....ODDDDDDDDDDDDDDO....',
-  '.....OOOOOOOOOOOOOO.....',
+  '....OBBBBBBBBBBBBBDO....',
+  '....ODBBBBBBBBBBBDDO....',
+  '.....OODDDDDDDDDDOO.....',
+  '.......OOOOOOOOOO.......',
 ]
-// Arms hang from the shoulders (rows 17-25): the left one is part of the body, the right one can wave
-const ARM = ['OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OLO', 'OLO', 'OOO']
-const WAVE_HIGH = ['OOO', 'OLO', 'OLO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO']   // from row 6
-const WAVE_LOW = ['OOO', 'OLO', 'OLO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO']                // from row 8
+// Stubby rounded arms come out from behind the body (rows 19-26): the left one is part of
+// the front view, the right one can wave
+const ARM = ['.O.', 'OBO', 'OBO', 'OBO', 'OBO', 'OLO', 'OLO', '.O.']
+const WAVE_HIGH = ['.O.', 'OLO', 'OLO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', '.O.']  // from row 8
+const WAVE_LOW = ['.O.', 'OLO', 'OLO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', 'OBO', '.O.']         // from row 10
 // Rows 27-34: legs and feet
 const LEGS = [
   '......OBBO....OBBO......',
@@ -87,21 +89,21 @@ const SIDE_HEAD = [
   '....OOOOOOOOO...',
 ]
 const SIDE_TORSO = [
-  '.....OOOOOOOOOOOOOO.....',
+  '........OOOOOOOO........',
+  '......OODBBBBBBLOO......',
+  '......ODBBBBBBBBBLO.....',
   '.....ODBBBBBBBBBBLO.....',
-  '.....ODBBBBBBBBBBBO.....',
   '.....ODBBBBBBBBBOGO.....',
   '.....ODBBBBBBBBBOGO.....',
   '.....ODBBBBBBBBBBBO.....',
   '.....ODBBBBBBBBBBBO.....',
-  '.....ODBBBBBBBBBBBO.....',
-  '.....ODBBBBBBBBBBBO.....',
-  '......ODDDDDDDDDDO......',
-  '.......OOOOOOOOOO.......',
+  '......ODBBBBBBBBBO......',
+  '......OODDDDDDDDOO......',
+  '........OOOOOOOO........',
 ]
 // Near arm from the shoulder down, swinging forward (+1) or back (-1) by these offsets per row
 const ARM_SWING = [0, 1, 1, 2, 3, 3, 4, 5, 6]
-const sideArm = (swing) => ARM_SWING.map((o, i) => pad(i < 8 ? 'OLLO' : 'OOOO', 10 + swing * o))
+const sideArm = (swing) => ARM_SWING.map((o, i) => pad(i > 0 && i < 8 ? 'OLLO' : '.OO.', 10 + swing * o))
 // Legs from the hip down to the foot on the ground
 const LEG_REACH = [0, 1, 1, 2, 3, 3, 4]
 const sideLeg = (kind) => kind === 'straight'
@@ -131,7 +133,7 @@ const WALK_CYCLE = [
   sideFrame('back', 'fwd', 1),
   sideFrame('straight', 'straight', 0),
 ]
-const FRONT = layered([[0, HEAD.map((r) => pad(r, 4))], [15, BODY], [17, ARM], [27, LEGS]])
+const FRONT = layered([[19, ARM.map((r) => pad(r, 1))], [0, HEAD.map((r) => pad(r, 4))], [15, BODY], [27, LEGS]])
 
 const COLORS = { O: '#1e1b4b', B: '#6366f1', L: '#a5b4fc', D: '#4338ca', S: '#111433', G: '#67e8f9', C: '#67e8f9', K: '#67e8f9' }
 
@@ -158,9 +160,9 @@ function pixels(rows, top = 0, left = 0) {
 
 const SPRITE = {
   front: pixels(FRONT),
-  arm: pixels(ARM, 17, 21),
-  waveHigh: pixels(WAVE_HIGH, 6, 21),
-  waveLow: pixels(WAVE_LOW, 8, 21),
+  arm: pixels(ARM, 19, 20),
+  waveHigh: pixels(WAVE_HIGH, 8, 20),
+  waveLow: pixels(WAVE_LOW, 10, 20),
   walk: WALK_CYCLE.map((rows) => pixels(rows)),
   faces: Object.fromEntries(Object.entries(FACES).map(([k, rows]) => [k, pixels(rows, 7, 8)])),
 }
@@ -289,11 +291,12 @@ export default function PixelBot({ busy = false, typing = false }) {
             SPRITE.walk.map((frame, i) => <g key={i} className={`pb-frame f${i}`}>{frame}</g>)
           ) : (
             <>
-              {SPRITE.front}
-              <g transform={`translate(${s.look} ${s.lookDown})`}>{SPRITE.faces[s.face]}</g>
+              {/* the right arm first, so the round body overlaps where it joins */}
               {s.act === 'wave'
                 ? <><g className="pb-wave-a">{SPRITE.waveHigh}</g><g className="pb-wave-b">{SPRITE.waveLow}</g></>
                 : SPRITE.arm}
+              {SPRITE.front}
+              <g transform={`translate(${s.look} ${s.lookDown})`}>{SPRITE.faces[s.face]}</g>
               {s.act === 'doze' && <text className="pb-z" x="18" y="4">z</text>}
             </>
           )}
