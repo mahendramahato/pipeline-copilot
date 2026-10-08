@@ -3,6 +3,7 @@ import { getHealth, getMonitor, getShowcase, getShowcaseList, getThread, getThre
 import { Book, Lock, Logo, Plus, Send } from './Icons.jsx'
 import LoginModal from './LoginModal.jsx'
 import PixelBot from './PixelBot.jsx'
+import Robot3D from './Robot3D.jsx'
 import Turn from './Turn.jsx'
 
 const REPO_URL = 'https://github.com/mahendramahato/pipeline-copilot'
@@ -295,7 +296,7 @@ export default function App() {
         <div className="conversation">
           {view.kind === 'home' && (
             <div className="empty landing">
-              <Logo size={56} />
+              <Robot3D size={120} />
               <h1>An AI on-call assistant for data pipelines</h1>
               <p>
                 It investigates the way an on-call engineer would: reading Airflow runs and logs,
@@ -325,7 +326,7 @@ export default function App() {
 
           {view.kind === 'chat' && turns.length === 0 && (
             <div className="empty">
-              <Logo size={56} />
+              <Robot3D size={120} />
               <h1>What looks wrong in your pipeline?</h1>
               <p>
                 Ask about DAG runs, task logs, tables or data quality. Pipeline Copilot investigates with
