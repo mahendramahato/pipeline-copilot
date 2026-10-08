@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getHealth, getMonitor, getShowcase, getShowcaseList, getThread, getThreads, logout, runMonitor, streamChat } from './api.js'
-import { Book, Lock, Logo, Plus, Send } from './Icons.jsx'
+import { Book, Lock, Plus, Send } from './Icons.jsx'
 import LoginModal from './LoginModal.jsx'
-import PixelBot from './PixelBot.jsx'
 import Robot3D from './Robot3D.jsx'
 import Turn from './Turn.jsx'
 
@@ -185,7 +184,7 @@ export default function App() {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand" onClick={() => !busy && setView(owner ? { kind: 'chat' } : { kind: 'home' })}>
-          <Logo size={34} />
+          <Robot3D size={34} />
           <div>
             <div className="brand-name">Pipeline Copilot</div>
             <div className="brand-sub">On-call for data pipelines</div>
@@ -296,7 +295,7 @@ export default function App() {
         <div className="conversation">
           {view.kind === 'home' && (
             <div className="empty landing">
-              <Robot3D size={120} />
+              <Robot3D size={120} rotatable />
               <h1>An AI on-call assistant for data pipelines</h1>
               <p>
                 It investigates the way an on-call engineer would: reading Airflow runs and logs,
@@ -326,7 +325,7 @@ export default function App() {
 
           {view.kind === 'chat' && turns.length === 0 && (
             <div className="empty">
-              <Robot3D size={120} />
+              <Robot3D size={120} rotatable />
               <h1>What looks wrong in your pipeline?</h1>
               <p>
                 Ask about DAG runs, task logs, tables or data quality. Pipeline Copilot investigates with
@@ -350,7 +349,6 @@ export default function App() {
 
         {view.kind === 'chat' && owner ? (
           <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input) }}>
-            <PixelBot busy={busy} typing={input.trim().length > 0} />
             <div className="composer-box">
               <textarea
                 ref={inputRef}

@@ -6,19 +6,6 @@ const Svg = ({ size = 16, children, ...rest }) => (
 )
 
 // Brand mark: a pulse line in a gradient tile
-export const Logo = ({ size = 32 }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-    <defs>
-      <linearGradient id="logo-g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stopColor="#6366f1" />
-        <stop offset="1" stopColor="#0ea5e9" />
-      </linearGradient>
-    </defs>
-    <rect width="32" height="32" rx="9" fill="url(#logo-g)" />
-    <path d="M5 17h5l3-7 5 13 3-6h6" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
 export const Plus = (p) => <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>
 export const Send = (p) => <Svg {...p}><path d="M5 12h14M13 6l6 6-6 6" /></Svg>
 export const Check = (p) => <Svg {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Svg>
