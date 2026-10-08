@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { getHealth, getMonitor, getShowcase, getShowcaseList, getThread, getThreads, logout, runMonitor, streamChat } from './api.js'
 import { Book, Lock, Logo, Plus, Send } from './Icons.jsx'
 import LoginModal from './LoginModal.jsx'
+import PixelBot from './PixelBot.jsx'
 import Robot from './Robot.jsx'
 import Turn from './Turn.jsx'
 
@@ -349,6 +350,7 @@ export default function App() {
 
         {view.kind === 'chat' && owner ? (
           <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input) }}>
+            <PixelBot busy={busy} />
             <div className="composer-box">
               <textarea
                 ref={inputRef}
