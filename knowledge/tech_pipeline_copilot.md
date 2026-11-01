@@ -20,7 +20,8 @@ MCP is an open standard for giving AI models tools. Tools live in separate MCP s
 client (this agent, Claude Code, ...) can discover and call them. Pipeline Copilot runs five
 servers. Four are read-only: Airflow (DAG runs, task instances, task logs), Athena (tables, schemas, versions,
 registered partitions, SQL queries, Glue job runs and logs), Knowledge (runbook search, past
-incidents) and Ops (the live local lake, container status and logs, dashboard health). The fifth,
+incidents) and Ops (the live local lake, container status and logs, dashboard health, host and
+per-container memory/CPU/disk now and over the last days). The fifth,
 Actions, can clear a task, trigger a backfill run or restart a container; its tools are hidden
 from the model and called only by the graph after approval. Each server holds its own
 credentials, so the agent process never sees them.

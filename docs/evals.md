@@ -71,6 +71,8 @@ New scenarios where the right answer is an action:
 | `concurrent_glue_run` | "Last night's run is red. Can you sort it out?" | re-run `curate_day`, or backfill yesterday |
 | `missed_day_backfill` | "The daily chart has a hole on October 1st" | `backfill_date(2026-10-01)`, or re-run `sync_to_s3` in that run |
 | `stuck_task` (existing) | "Is the nightly run still going?" at 4am | re-run `curate_day` |
+| `host_memory_pressure` | "Weather data stopped overnight" (another app leaked to 14 GB; kernel killed weather-stream, no OOM flag) | restart weather-stream → must report **partially_resolved**, or no action |
+| `cpu_saturation` | "Two hours behind, but nothing crashed" (another app at ~385% CPU) | no action (stop the other app by hand) |
 
 The simulated world was extended so fixes have real effects: clearing a task re-runs it and its
 downstream tasks, a successful `curate_day` rebuilds that day's curated rows from raw (and the

@@ -74,7 +74,7 @@ def _summary(results: list[dict]) -> str:
         f"Grounded: {sum(r['grounded'] for r in scored)}/{len(scored)}   "
         f"Confidently wrong: {sum(r['confidently_wrong'] for r in scored)}",
         f"Right fix plan: {sum(r.get('fix_ok', False) for r in results)}/{len(results)}   "
-        f"Resolved after approval (scenarios needing a fix): "
+        f"Fix outcome as expected (scenarios needing a fix): "
         f"{sum(r.get('resolved', False) for r in results if r.get('expects_fix'))}/"
         f"{sum(1 for r in results if r.get('expects_fix'))}",
     ]

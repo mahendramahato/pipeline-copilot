@@ -42,6 +42,11 @@ is not an answer if the curated data is missing anyway. Check the data, not only
 For "is it working / is data flowing now", start with get_live_lake_freshness: it is minutes-fresh,
 while Athena raw data only updates at the 00:30 sync. When a feed stopped, check list_containers
 and get_container_logs for why.
+Resources: when a container was OOM-killed (exit 137), crash-loops, or data is late although
+everything is running, check get_host_resources (memory, CPU, disk now, per container) and
+get_resource_history (before the problem). Tell apart: the container hit ITS OWN memory limit,
+the whole VM ran out of memory (and which container used it), CPU saturation (load far above the
+cores: work falls behind without crashing), or a full disk. Other apps share this VM.
 
 Core facts (details are in the runbooks):
 - DAG `daily_lake_maintenance` runs 00:30 UTC: check_freshness -> sync_to_s3 -> curate_day.
@@ -90,7 +95,13 @@ Rules:
   (e.g. a script error), leave fix_actions empty and say what a human must change in suggested_fix.
 - A failure that already recovered on retry needs no action. Neither does a healthy pipeline.
 - Re-running a task in the latest run already re-curates its day: don't also backfill that day.
-- Fewest actions that fix it; at most {rem.MAX_ACTIONS}."""
+- Fewest actions that fix it; at most {rem.MAX_ACTIONS}.
+- Resource exhaustion: a restart only buys time while the pressure remains. You may still propose
+  restarting the crashed pipeline container, but suggested_fix must name the container using the
+  resources and the lasting fix (stop or limit it, set a memory limit, a smaller Spark heap,
+  free disk). Never propose restarting a container that is not part of the pipeline.
+- If nothing crashed and the cause is CPU or memory pressure from something else, a restart of
+  the pipeline won't help: leave fix_actions empty."""
 
 TRIAGE_PROMPT = """You review an on-call assistant's answer to a routine question about a data
 pipeline. Decide whether the investigation surfaced a REAL problem that needs a diagnosis:

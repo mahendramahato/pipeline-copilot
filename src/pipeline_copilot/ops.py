@@ -19,6 +19,7 @@ from pathlib import Path
 import duckdb
 import httpx
 
+from pipeline_copilot import resources
 from pipeline_copilot.sql_guard import check_query
 
 LAKE_TABLES = {"lake_weather": "weather", "lake_seismic": "seismic"}
@@ -271,4 +272,9 @@ def health_checks() -> list[dict]:
     for label, r in dashboard_health().items():
         checks.append({"check": f"dashboard {label}", "ok": r["ok"],
                        "detail": r.get("error") or f"HTTP {r['status']} in {r['ms']} ms"})
+    # Host memory, CPU, disk and containers at their memory limit
+    try:
+        checks += resources.checks(resources.snapshot(url, root))
+    except (httpx.HTTPError, OSError) as e:
+        checks.append({"check": "resource stats readable", "ok": False, "detail": type(e).__name__})
     return checks

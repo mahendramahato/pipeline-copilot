@@ -4,14 +4,14 @@ import csv
 import hashlib
 import json
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import duckdb
 import sqlglot
 from langchain_core.tools import BaseTool, StructuredTool
 
-from evals.world import DAG_ID, SCHEMAS, STATIONS, TASKS, World
-from pipeline_copilot import ops
+from evals.world import BASE_STATS, DAG_ID, SCHEMAS, STATIONS, TASKS, World, host_for
+from pipeline_copilot import ops, resources
 from pipeline_copilot import remediation as rem
 from pipeline_copilot.athena_client import QueryResult
 from pipeline_copilot.config import load_knowledge_settings
@@ -186,7 +186,37 @@ def _impls(world: World) -> dict:
     def _containers() -> list[dict]:
         base = [{"name": n, "state": "running", "status": "Up 3 days", "restarts": 0, "exit_code": 0,
                  "oom_killed": False} for n in ops.DEFAULT_EXPECTED.split(",") + ["copilot", "kafka-ui", "spark"]]
+        base += [{"name": n, "state": "running", "status": "Up 2 days", "restarts": 0, "exit_code": 0,
+                  "oom_killed": False, **extra} for n, extra in world.extra_containers.items()]
         return sorted(({**c, **world.containers.get(c["name"], {})} for c in base), key=lambda c: c["name"])
+
+    # ---- Resources: running containers' stats, a host consistent with them, history ----
+    def _snapshot() -> dict:
+        stats = []
+        for c in _containers():
+            if c["state"] != "running":
+                continue
+            mem, limit, cpu = BASE_STATS.get(c["name"], (150, None, 0.5))
+            stats.append({"name": c["name"], "mem_mb": mem, "limit_mb": limit, "cpu_pct": cpu, "pids": 30,
+                          **world.container_stats.get(c["name"], {})})
+        stats.sort(key=lambda c: -c["mem_mb"])
+        return {"at": world.now.isoformat(timespec="seconds"), "host": host_for(stats, world.host_load1),
+                "containers": stats}
+
+    def _history() -> list[dict]:
+        if world.resource_history is not None:
+            return world.resource_history
+        snap = _snapshot()
+        return [{**snap, "at": (world.now - timedelta(minutes=30 * i)).isoformat(timespec="seconds")}
+                for i in range(48, 0, -1)]
+
+    def get_host_resources(as_json=False):
+        snap = _snapshot()
+        return json.dumps(snap) if as_json else resources.format_snapshot(snap)
+
+    def get_resource_history(hours=24, container=None):
+        since = (world.now - timedelta(hours=hours)).isoformat()
+        return resources.format_history([r for r in _history() if r["at"] >= since], container)
 
     def _dashboard() -> dict:
         base = {"api_health": {"ok": True, "status": 200, "ms": 12},
@@ -239,6 +269,7 @@ def _impls(world: World) -> dict:
                                "detail": f"{c['state']} ({c['status']}), restarts={c['restarts']}"})
         for label, r in _dashboard().items():
             checks.append({"check": f"dashboard {label}", "ok": r["ok"], "detail": f"HTTP {r.get('status')}"})
+        checks += resources.checks(_snapshot())      # the REAL resource thresholds
         return json.dumps(checks)
 
     # ---- Glue job runs, derived from each DAG run's curate_day task ----
@@ -329,6 +360,7 @@ def _impls(world: World) -> dict:
 
     return {f.__name__: f for f in [
         clear_task, trigger_backfill, restart_container, get_dag_run_status,
+        get_host_resources, get_resource_history,
         list_dags, get_recent_dag_runs, get_task_instances, get_task_log,
         list_tables, get_table_schema, get_table_versions, get_registered_partitions, run_query,
         search_runbooks, search_past_incidents, record_incident, get_current_time,

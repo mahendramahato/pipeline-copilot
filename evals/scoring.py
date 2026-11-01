@@ -52,9 +52,13 @@ def score_fix(s: Scenario, final_state: dict) -> dict:
         "proposed": [describe(a) for a in plan["actions"]],
         "outcome": remediation.get("outcome"),
     }
-    # "resolved" only counts for scenarios that need a fix; for the others,
-    # proposing nothing IS the right outcome.
-    out["resolved"] = (out["outcome"] == "resolved") if s.expects_fix else not plan["actions"]
+    # Proposing nothing is right when "no action" is an acceptable plan. Otherwise the
+    # executed fix must end the way an honest check would report it (usually "resolved";
+    # "partially_resolved" when the root cause outlives the fix).
+    if not plan["actions"]:
+        out["resolved"] = [] in s.fix_options
+    else:
+        out["resolved"] = out["outcome"] == s.expected_outcome
     return out
 
 

@@ -74,7 +74,8 @@ are split by section and embedded into Chroma offline (whenever the docs change)
 agent searches them during an investigation. The same store keeps verified past incidents.
 
 - **Five MCP servers:** Airflow (runs, task logs), Athena (data, schemas, Glue job runs and their CloudWatch logs), Knowledge (runbooks, explainers, past incidents) and Ops (the live Spark lake, container status and logs, dashboard health), plus Actions (approved fixes only, never visible to the model).
-- **A health monitor** runs free, deterministic checks every 30 minutes (every feed and station current, containers up, dashboard reachable, last night's DAG run, yesterday curated). Only when a check newly fails does it run an AI investigation (capped per day) and send one alert with root cause, impact and fix.
+- **A health monitor** runs free, deterministic checks every 30 minutes (every feed and station current, containers up, dashboard reachable, last night's DAG run, yesterday curated, host memory / CPU / disk and containers at their memory limit). Each pass also records a resource snapshot, so after a crash the agent can see what memory looked like *before* it.
+- **Resource forensics.** `get_host_resources` (host memory, load vs cores, disk, every container's memory vs its limit and CPU %) and `get_resource_history` let it tell apart "weather-stream hit its own limit", "the whole VM ran out of memory because another app leaked" (Docker doesn't flag those kills as OOM) and "the CPU is saturated, so streaming falls behind without crashing". Only when a check newly fails does it run an AI investigation (capped per day) and send one alert with root cause, impact and fix.
 - **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
 - **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).
 - **Questions escalate.** "Did Glue run OK?" is routed as a question, but if the answer surfaces a real problem, a cheap triage step escalates it into a full diagnosis instead of stopping at a chat reply.
@@ -125,7 +126,7 @@ Seven failures injected into a **simulated** pipeline: fake tools with the real 
 
 Caveats: a single run per scenario, scenarios written by the agent's author, and keyword-based scoring. The suite also shows the main weakness: **healthy or "nothing to do" cases still take 17–18 tool calls**, so the agent over-investigates.
 
-**Remediation evals.** Every scenario now also scores the fix: the runner auto-approves whatever the agent proposes, executes it against the simulated world and validates it. Three scenarios were added where the right answer *is* an action (`container_oom` → restart weather-stream, `concurrent_glue_run` → re-run curate_day, `missed_day_backfill` → backfill 10-01), and `stuck_task` expects a re-run. The others expect **no action**: a bad Glue deploy must be fixed in code first (re-running would fail again, and the simulated world makes it fail), a recovered retry needs nothing. Two numbers are reported: *right fix plan* (all 10) and *resolved after approval* (the 4 that need a fix). Results for the extended suite: run `uv run python -m evals.run`.
+**Remediation evals.** Every scenario now also scores the fix: the runner auto-approves whatever the agent proposes, executes it against the simulated world and validates it. Three scenarios were added where the right answer *is* an action (`container_oom` → restart weather-stream, `concurrent_glue_run` → re-run curate_day, `missed_day_backfill` → backfill 10-01), and `stuck_task` expects a re-run. The others expect **no action**: a bad Glue deploy must be fixed in code first (re-running would fail again, and the simulated world makes it fail), a recovered retry needs nothing. Two resource scenarios test the honest side of fixing: in `host_memory_pressure` another app on the VM leaks memory until the kernel kills weather-stream; restarting it is allowed, but validation must report **partially_resolved** because host memory is still above 90%. In `cpu_saturation` a runaway app pins the CPU and nothing crashes, so the right plan is *no action* (a human stops the other app). Two numbers are reported: *right fix plan* (all 12) and *fix outcome as expected* (the 5 that need or allow a fix). Results for the extended suite: run `uv run python -m evals.run`.
 
 ---
 
@@ -138,7 +139,7 @@ Caveats: a single run per scenario, scenarios written by the agent's author, and
 | Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
 | RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |
 | Interfaces | Terminal chat; FastAPI with Server-Sent Events + React (Vite) |
-| Testing | pytest (98 tests, incl. the full approve → execute → verify loop with a scripted model), a simulated eval suite with DuckDB, LangSmith tracing |
+| Testing | pytest (109 tests, incl. the full approve → execute → verify loop with a scripted model), a simulated eval suite with DuckDB, LangSmith tracing |
 | Tooling | Python 3.12, `uv` |
 
 ## Repository layout

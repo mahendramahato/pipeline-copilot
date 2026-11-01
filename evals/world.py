@@ -42,6 +42,24 @@ SCHEMAS = {
 }
 
 
+# Typical memory (MB) / CPU % of each container on a healthy day, and the stream jobs' limits
+BASE_STATS = {
+    "kafka": (1100, None, 6.0), "producer": (180, None, 0.8), "weather-stream": (2600, 4096, 22.0),
+    "seismic-stream": (2300, 4096, 18.0), "airflow": (1400, None, 4.0), "airflow-postgres": (220, None, 0.5),
+    "api": (210, None, 0.6), "web": (40, None, 0.1), "copilot": (600, None, 0.4), "kafka-ui": (350, None, 0.3),
+    "spark": (900, None, 1.0),
+}
+HOST_TOTAL_MB, HOST_OS_MB, HOST_CPUS = 24000, 1500, 4
+
+
+def host_for(containers: list[dict], load1: float = 0.9, disk_used_pct: float = 41.0) -> dict:
+    """Host numbers consistent with the containers: used = their memory + the OS."""
+    used = HOST_OS_MB + sum(c["mem_mb"] for c in containers)
+    return {"cpus": HOST_CPUS, "mem_total_mb": HOST_TOTAL_MB, "mem_available_mb": max(HOST_TOTAL_MB - used, 0),
+            "swap_used_mb": 0, "load1": load1, "load5": round(load1 * 0.95, 2), "load15": round(load1 * 0.9, 2),
+            "disk_used_pct": disk_used_pct, "disk_free_gb": round(190 * (1 - disk_used_pct / 100), 1)}
+
+
 @dataclass
 class World:
     now: datetime
@@ -60,6 +78,11 @@ class World:
     # Remediation: what happens when the agent's approved fix runs in this world.
     # curation_broken: the Glue script itself is wrong, so re-running curation fails again.
     curation_broken: bool = False
+    # Resources. Empty = healthy defaults (BASE_STATS, a quiet host, a calm 24 h history).
+    extra_containers: dict[str, dict] = field(default_factory=dict)       # other apps on the VM: name -> overrides
+    container_stats: dict[str, dict] = field(default_factory=dict)        # name -> {mem_mb, limit_mb, cpu_pct}
+    host_load1: float = 0.9
+    resource_history: list[dict] | None = None                            # None = generate a calm one
     actions: list[dict] = field(default_factory=list)                     # every action executed
     tables_version: int = 0                                                # bumped when tables change
 

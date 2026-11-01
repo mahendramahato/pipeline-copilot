@@ -306,7 +306,7 @@ def test_expected_fix_resolves_in_simulated_world(monkeypatch, sid):
     # Every scenario's intended fix must actually fix its simulated world, or the
     # eval would mark a correct agent as failing.
     from evals.scoring import plan_matches
-    option = SCENARIOS[sid]().fix_options[0]
+    option = next(o for o in SCENARIOS[sid]().fix_options if o)     # the first plan that does something
     actions = [{"run_id": None, "task_id": None, "date": None, "container": None, "why": "t", **m} for m in option]
     now = SCENARIOS[sid]().world.now.isoformat(timespec="seconds")
     diagnosis = Diagnosis(
@@ -323,4 +323,4 @@ def test_expected_fix_resolves_in_simulated_world(monkeypatch, sid):
 
     state = asyncio.run(go())
     assert plan_matches(state["plan"]["actions"], SCENARIOS[sid]().fix_options)
-    assert state["remediation"]["outcome"] == "resolved", state["remediation"]
+    assert state["remediation"]["outcome"] == SCENARIOS[sid]().expected_outcome, state["remediation"]

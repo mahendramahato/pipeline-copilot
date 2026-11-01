@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from pipeline_copilot import remediation as rem
+from pipeline_copilot import resources
 from pipeline_copilot.graph import _as_text
 from pipeline_copilot.runtime import Agent, new_thread_id, run_turn
 
@@ -59,6 +60,15 @@ async def collect_checks(agent: Agent) -> list[dict]:
         checks += json.loads(await _tool(agent, "run_health_checks", {}))
     except Exception as e:   # noqa: BLE001 - a broken check source is itself a failing check
         checks.append({"check": "ops health checks ran", "ok": False, "detail": f"{type(e).__name__}: {e}"})
+
+    # One resource snapshot per pass: the history the agent reads after a crash
+    path = resources.history_path()
+    if path is not None:
+        try:
+            snap = json.loads(await _tool(agent, "get_host_resources", {"as_json": True}))
+            resources.append_history(snap, path)
+        except Exception as e:  # noqa: BLE001 - history is best-effort, never blocks the checks
+            log.warning("resource snapshot not recorded: %s", e)
 
     try:
         out = await _tool(agent, "get_recent_dag_runs", {"dag_id": DAG_ID, "limit": 1})

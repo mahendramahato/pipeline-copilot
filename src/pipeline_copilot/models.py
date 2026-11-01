@@ -30,7 +30,7 @@ class Diagnosis(BaseModel):
     summary: str = Field(description="One sentence: what is wrong.")
     category: Literal[
         "silent_data_gap", "schema_drift", "bad_upstream_data", "stale_streaming",
-        "transient_failure", "duplicates", "code_bug", "stuck_task",
+        "transient_failure", "duplicates", "code_bug", "stuck_task", "resource_exhaustion",
         "config_or_infra", "no_problem_found", "unknown",
     ]
     root_cause: str = Field(description="The underlying cause, as specifically as the evidence allows.")

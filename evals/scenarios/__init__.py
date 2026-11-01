@@ -1,7 +1,7 @@
 """All eval scenarios, by id. Add each new scenario here."""
 from evals.scenarios import (
-    concurrent_glue_run, container_oom, duplicates, glue_code_bug, healthy, missed_day, null_spike,
-    schema_drift, stuck_task, transient_retry,
+    concurrent_glue_run, container_oom, cpu_saturation, duplicates, glue_code_bug, healthy,
+    host_memory_pressure, missed_day, null_spike, schema_drift, stuck_task, transient_retry,
 )
 
 SCENARIOS = {
@@ -15,5 +15,8 @@ SCENARIOS = {
     "container_oom": container_oom.build,
     "concurrent_glue_run": concurrent_glue_run.build,
     "missed_day_backfill": missed_day.build,
+    # Resources: the VM ran out of memory / CPU because of ANOTHER app
+    "host_memory_pressure": host_memory_pressure.build,
+    "cpu_saturation": cpu_saturation.build,
     "healthy_control": healthy.build,
 }
