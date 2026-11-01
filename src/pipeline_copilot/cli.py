@@ -3,7 +3,8 @@ shared with the web API, so both show exactly the same steps."""
 import argparse
 import asyncio
 
-from pipeline_copilot.runtime import new_thread_id, open_agent, run_turn
+from pipeline_copilot import remediation as rem
+from pipeline_copilot.runtime import new_thread_id, open_agent, resume_turn, run_turn
 
 
 def _show_diagnosis(d: dict) -> None:
@@ -23,9 +24,16 @@ def _show_diagnosis(d: dict) -> None:
         print(f"  │ runbooks: {', '.join(d['runbooks_used'])}")
     for u in d["unverified"]:
         print(f"  │ unverified: {u}")
-    if d.get("memory"):
-        print(f"  │ memory: {d['memory']}")
     print("  └" + "─" * 62 + "\n")
+
+
+def _show_plan(p: dict) -> None:
+    for a in p["actions"]:
+        print(f"  ⚙ proposed: {rem.describe(a)}  [risk={a['risk']}]  {a['why']}")
+    for a in p["rejected"]:
+        print(f"  ⊘ not offered: {a['action']} ({a['reason']})")
+    if p.get("note"):
+        print(f"  ℹ {p['note']}")
 
 
 def _show(event: dict) -> None:
@@ -39,6 +47,27 @@ def _show(event: dict) -> None:
             print(f"\n{event['text']}\n")
         case "diagnosis":
             _show_diagnosis(event["diagnosis"])
+        case "escalated":
+            print(f"  ↯ {event['text']}")
+        case "plan":
+            _show_plan(event["plan"])
+        case "progress":
+            print(f"    … {event['text']}")
+        case "approval":
+            a = event["approval"]
+            print(f"  {'✓ approved' if a['approved'] else '✗ rejected'} by {a['by']}"
+                  + (f" ({a['note']})" if a.get("note") else ""))
+        case "remediation":
+            r = event["remediation"]
+            print(f"\n  FIX OUTCOME: {r['outcome'].upper()}")
+            for step in r["results"]:
+                print(f"  {'✓' if step['verified'] else '✗'} {rem.describe(step)}: {step['verification']}")
+            for c in r.get("still_failing", []):
+                print(f"  ! still failing: {c['check']} ({c['detail']})")
+            print()
+        case "memory":
+            if event.get("note"):
+                print(f"  memory: {event['note']}\n")
         case "error":
             print(f"  ✗ {event['message']}\n")
 
@@ -61,8 +90,18 @@ async def chat(thread_id: str) -> None:
             if question.lower() in {"exit", "quit"}:
                 break
             if question:
-                async for event in run_turn(agent, thread_id, question):
-                    _show(event)
+                events = run_turn(agent, thread_id, question)
+                # A fix may need approval; keep asking until the run finishes
+                while events is not None:
+                    pending = None
+                    async for event in events:
+                        _show(event)
+                        if event["type"] == "approval_required":
+                            pending = event["request"]
+                    events = None
+                    if pending:
+                        answer = (await asyncio.to_thread(input, "  Apply this fix? [y/N] ")).strip().lower()
+                        events = resume_turn(agent, thread_id, {"approved": answer in ("y", "yes"), "by": "cli"})
 
 
 def main() -> None:

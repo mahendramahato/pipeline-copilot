@@ -26,7 +26,7 @@ services:
       # The Spark jobs' local lake, read-only: live freshness, minutes after a feed stops
       - ~/weather-seismic-pipeline/data/lake:/lake:ro
     networks: [pipeline, docker-api]
-    depends_on: [docker-proxy]
+    depends_on: [docker-proxy, docker-actions-proxy]
 
   # Read-only gateway to the Docker API, so the agent can see container status and
   # logs. CONTAINERS=1 allows GET on /containers (list, inspect, logs); everything
@@ -39,6 +39,21 @@ services:
     environment:
       CONTAINERS: 1
       POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api]
+
+  # A SECOND gateway, only for approved fixes: it allows restarting a container and
+  # nothing else (no listing, no logs, no create/exec). The agent's code also limits
+  # which containers it may restart (remediation.restartable_containers).
+  docker-actions-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: copilot-actions-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 0
+      POST: 0
+      ALLOW_RESTARTS: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [docker-api]

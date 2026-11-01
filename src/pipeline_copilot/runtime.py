@@ -16,11 +16,14 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
+from langgraph.types import Command
 
 from pipeline_copilot.config import AgentSettings, load_agent_settings
 from pipeline_copilot.graph import build_graph
 
-MAX_STEPS = 20
+# Graph steps per run: the agent/tools loop plus up to 8 fixed steps
+# (triage, diagnose, verify, plan, approval, execute, validate, remember)
+MAX_STEPS = 26
 
 # --- Which MCP servers to start, and how ---
 # stdio: the agent launches each server as a subprocess and talks over its
@@ -30,7 +33,8 @@ MAX_STEPS = 20
 MCP_SERVERS = {
     name: {"transport": "stdio", "command": sys.executable,
            "args": ["-m", f"pipeline_copilot.mcp_servers.{name}_server"]}
-    for name in ("airflow", "athena", "knowledge", "ops")
+    # actions: the only server that can change the pipeline; the model never sees its tools
+    for name in ("airflow", "athena", "knowledge", "ops", "actions")
 }
 
 
@@ -106,20 +110,39 @@ async def repair_dangling_tool_calls(graph, thread_id: str) -> None:
         await graph.aupdate_state(config, {"messages": cancelled}, as_node="tools")
 
 
-# --- Run one question; yield events as each graph node finishes ---
-async def run_turn(agent: Agent, thread_id: str, question: str) -> AsyncIterator[dict]:
+# --- Graph output → display events ---
+# stream_mode=["updates", "custom"]: "updates" after each node, "custom" for the
+# progress lines that execute/validate write while they wait on Airflow.
+async def _stream(agent: Agent, graph_input, thread_id: str) -> AsyncIterator[dict]:
     try:
-        # Only the new message: the checkpointer supplies the conversation so far
-        async for update in agent.graph.astream(
-            {"messages": [HumanMessage(question)]}, config=_config(thread_id), stream_mode="updates"
+        async for mode, chunk in agent.graph.astream(
+            graph_input, config=_config(thread_id), stream_mode=["updates", "custom"]
         ):
-            for node, change in update.items():
-                for msg in (change or {}).get("messages", []):
+            if mode == "custom":
+                yield chunk
+                continue
+            for node, change in chunk.items():
+                if node == "__interrupt__":
+                    # The graph paused at await_approval: a human must decide
+                    for intr in change:
+                        yield {"type": "approval_required", "request": intr.value}
+                    continue
+                change = change or {}
+                for msg in change.get("messages", []):
                     for event in message_events(msg, agent.tool_servers):
                         yield event
-                # The diagnosis is final only after verification and memory
-                if node == "remember" and (change or {}).get("diagnosis"):
+                if node == "triage" and change.get("intent") == "incident":
+                    yield {"type": "escalated", "text": "The answer surfaced a problem: diagnosing it."}
+                if node == "verify_diagnosis" and change.get("diagnosis"):
                     yield {"type": "diagnosis", "diagnosis": change["diagnosis"]}
+                if node == "plan" and change.get("plan"):
+                    yield {"type": "plan", "plan": change["plan"]}
+                if node == "await_approval" and change.get("approval"):
+                    yield {"type": "approval", "approval": change["approval"]}
+                if node == "validate" and change.get("remediation"):
+                    yield {"type": "remediation", "remediation": change["remediation"]}
+                if node == "remember" and change.get("diagnosis"):
+                    yield {"type": "memory", "note": change["diagnosis"].get("memory")}
     except GraphRecursionError:
         await repair_dangling_tool_calls(agent.graph, thread_id)
         yield {"type": "error", "message": f"Stopped after {MAX_STEPS} steps without an answer. "
@@ -129,9 +152,41 @@ async def run_turn(agent: Agent, thread_id: str, question: str) -> AsyncIterator
         yield {"type": "error", "message": f"{type(e).__name__}: {e}"}
 
 
+# --- Is this conversation paused, waiting for a fix to be approved? ---
+async def pending_approval(agent: Agent, thread_id: str) -> dict | None:
+    state = await agent.graph.aget_state(_config(thread_id))
+    for task in state.tasks:
+        for intr in task.interrupts:
+            return intr.value
+    return None
+
+
+# --- Run one question; yield events as each graph node finishes ---
+async def run_turn(agent: Agent, thread_id: str, question: str) -> AsyncIterator[dict]:
+    # A new question while a fix waits for approval: decline that fix first, so the
+    # pending step is closed on the record instead of silently dropped.
+    if await pending_approval(agent, thread_id):
+        async for event in resume_turn(agent, thread_id, {
+            "approved": False, "by": "system", "note": "superseded by a new question"
+        }):
+            yield event
+    # Only the new message: the checkpointer supplies the conversation so far
+    async for event in _stream(agent, {"messages": [HumanMessage(question)]}, thread_id):
+        yield event
+
+
+# --- Answer a paused approval: run (or skip) the fix, then validate it ---
+async def resume_turn(agent: Agent, thread_id: str, decision: dict) -> AsyncIterator[dict]:
+    if not await pending_approval(agent, thread_id):
+        yield {"type": "error", "message": "Nothing is waiting for approval in this conversation."}
+        return
+    async for event in _stream(agent, Command(resume=decision), thread_id):
+        yield event
+
+
 # --- A saved conversation, as turns of display events ---
-# Only the latest diagnosis is kept in state (each turn replaces it), so it's
-# attached to the last turn.
+# Only the latest turn's diagnosis, plan and fix are kept in state (each turn
+# replaces them), so they're attached to the last turn.
 async def load_thread(agent: Agent, thread_id: str) -> dict:
     state = await agent.graph.aget_state(_config(thread_id))
     turns: list[dict] = []
@@ -140,8 +195,19 @@ async def load_thread(agent: Agent, thread_id: str) -> dict:
             turns.append({"question": msg.text, "events": []})
         elif turns:
             turns[-1]["events"] += message_events(msg, agent.tool_servers)
-    if turns and state.values.get("diagnosis"):
-        turns[-1]["events"].append({"type": "diagnosis", "diagnosis": state.values["diagnosis"]})
+    if turns:
+        v, events = state.values, turns[-1]["events"]
+        if v.get("diagnosis"):
+            events.append({"type": "diagnosis", "diagnosis": v["diagnosis"]})
+        if v.get("plan"):
+            events.append({"type": "plan", "plan": v["plan"]})
+        pending = next((i.value for t in state.tasks for i in t.interrupts), None)
+        if pending:
+            events.append({"type": "approval_required", "request": pending})
+        if v.get("approval"):
+            events.append({"type": "approval", "approval": v["approval"]})
+        if v.get("remediation") and v["remediation"].get("outcome"):
+            events.append({"type": "remediation", "remediation": v["remediation"]})
     return {"thread_id": thread_id, "turns": turns}
 
 

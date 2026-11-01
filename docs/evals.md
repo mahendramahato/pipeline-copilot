@@ -48,3 +48,32 @@ Turned on prompt caching for the agent loop (each call re-sends the whole conver
 the repeated prefix is now read from cache at ~5% of the input price). Same suite:
 7/7 correct, 7/7 grounded, 0 confidently wrong. Avg agent-loop cost $0.21 → $0.09 (-57%).
 Avg tool calls 13.9 → 13.4: over-investigation is unchanged; caching only makes it cheaper.
+
+## Remediation: from diagnosis to verified fix (2026-11-01)
+
+The agent used to stop at a diagnosis with a free-text "suggested fix". It now proposes typed
+actions (`clear_task`, `backfill_date`, `restart_container`), pauses for approval, executes and
+validates. The eval runner auto-approves every proposal and runs it against the simulated world,
+so a scenario now scores two more things:
+
+- **Right fix plan:** the proposed actions match one of the scenario's acceptable plans
+  (`fix_options`). For most scenarios the right plan is *no action*: a recovered retry, a healthy
+  pipeline, duplicates already handled by dedup, upstream data problems, and a bad Glue deploy
+  (re-running a broken script fails again; the world's `curation_broken` flag makes it fail).
+- **Resolved after approval:** for scenarios that need a fix, `validate` reports `resolved`: the
+  Airflow run finished green, the re-curated day has rows, and every health check passes.
+
+New scenarios where the right answer is an action:
+
+| Scenario | Symptom given to the agent | Acceptable fix |
+|---|---|---|
+| `container_oom` | "The weather map hasn't moved in hours" | `restart_container(weather-stream)` |
+| `concurrent_glue_run` | "Last night's run is red. Can you sort it out?" | re-run `curate_day`, or backfill yesterday |
+| `missed_day_backfill` | "The daily chart has a hole on October 1st" | `backfill_date(2026-10-01)`, or re-run `sync_to_s3` in that run |
+| `stuck_task` (existing) | "Is the nightly run still going?" at 4am | re-run `curate_day` |
+
+The simulated world was extended so fixes have real effects: clearing a task re-runs it and its
+downstream tasks, a successful `curate_day` rebuilds that day's curated rows from raw (and the
+fake Athena reloads), a restart brings the container and its lake feed back.
+`tests/test_remediation.py` checks, without any LLM, that each scenario's intended fix really
+resolves its world, so a correct agent can't be scored as failing.

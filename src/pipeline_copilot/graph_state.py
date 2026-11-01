@@ -8,3 +8,6 @@ from langgraph.graph import MessagesState
 class AgentState(MessagesState):
     intent: str | None          # "question" or "incident", set by the guardrail
     diagnosis: dict | None      # a Diagnosis as a dict (plain JSON is easy to checkpoint)
+    plan: dict | None           # vetted fix: {"actions", "rejected", "note", "executable"}
+    approval: dict | None       # the human's decision: {"approved", "by", "note", "at"}
+    remediation: dict | None    # what ran and whether it worked: {"results", "health", "outcome"}

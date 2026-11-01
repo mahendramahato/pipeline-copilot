@@ -13,4 +13,12 @@ class Scenario:
     must_mention: list[str]          # ALL must appear in root_cause (case-insensitive)
     must_not_mention: list[str] = field(default_factory=list)   # red herrings: wrong blame
     runbook_covered: bool = True     # is there a runbook for this failure? Reported separately
+    # Acceptable fix plans. Each option is a list of action matchers: a plan matches an
+    # option when every matcher is met by a proposed action (matching only the keys
+    # given) and every proposed action meets a matcher. [[]] = "propose nothing".
+    fix_options: list[list[dict]] = field(default_factory=lambda: [[]])
     notes: str = ""
+
+    @property
+    def expects_fix(self) -> bool:
+        return any(self.fix_options)

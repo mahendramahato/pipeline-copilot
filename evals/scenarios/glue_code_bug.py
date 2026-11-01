@@ -31,6 +31,8 @@ def build() -> Scenario:
             f"{start} INFO     Marking task as {outcome}. dag_id=daily_lake_maintenance, task_id=curate_day",
         ])
 
+    world.curation_broken = True          # re-running curation fails until the script is fixed
+
     # The failed run curated nothing: yesterday is missing downstream
     for t in ("curated_weather", "curated_seismic", "curated_weather_daily"):
         world.tables[t] = [r for r in world.tables[t] if r["date"] != yesterday]
@@ -42,5 +44,6 @@ def build() -> Scenario:
         must_mention=["temp_c"],
         must_not_mention=["partition"],
         runbook_covered=True,          # runbook_glue_job_failed.md lists "script error after a change"
+        fix_options=[[]],              # a human must fix the script first; re-running would fail again
         notes="Table definitions unchanged, so the bad column name points at the script, not the data.",
     )

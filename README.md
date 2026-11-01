@@ -2,9 +2,11 @@
 
 **Live demo: [pipeline-copilot.duckdns.org](https://pipeline-copilot.duckdns.org)**: replay real investigations, including the one where it found a silent bug in my pipeline.
 
-**An AI on-call assistant for data pipelines.** Ask it why something looks wrong and it investigates the way an on-call engineer would: it reads Airflow runs and logs, queries the data lake, checks the team's runbooks and past incidents, then returns a structured diagnosis in which **every piece of evidence is verified against real tool output**.
+**An AI on-call agent for data pipelines.** Ask it why something looks wrong and it investigates the way an on-call engineer would: it reads Airflow runs and logs, queries the data lake, checks the team's runbooks and past incidents, then returns a structured diagnosis in which **every piece of evidence is verified against real tool output**.
 
-Built with **LangGraph** (agent loop), **MCP** (four tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
+Then it **fixes it, with a human in the loop**: it proposes a typed fix (re-run a task, backfill a day, restart a container), pauses for your approval, runs exactly what you approved, and **checks that it worked** (the run succeeded, the data is back, health checks are green).
+
+Built with **LangGraph** (agent loop), **MCP** (five tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
 
 It runs against my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline) (NOAA + USGS → Kafka → Spark → S3 → Glue → Athena, orchestrated by Airflow), but nothing in the design is specific to it.
 
@@ -67,14 +69,28 @@ Each ✓ means code found that exact text in that tool's output. The `unverified
 **The agent** is a LangGraph state graph: a cheap guardrail first, then an investigation loop,
 then (for incidents only) a typed diagnosis whose evidence is checked by code before it is
 shown or remembered. **MCP servers** are the only way out to Airflow, Athena and the runbooks,
-and each one runs with read-only credentials. **The knowledge base** is the RAG half: the team's runbooks
+and the four investigation servers run with read-only credentials (a fifth, `actions`, is reachable only by the graph after a human approves a fix). **The knowledge base** is the RAG half: the team's runbooks
 are split by section and embedded into Chroma offline (whenever the docs change), and the
 agent searches them during an investigation. The same store keeps verified past incidents.
 
-- **Four MCP servers:** Airflow (runs, task logs), Athena (data, schemas, Glue job runs and their CloudWatch logs), Knowledge (runbooks, explainers, past incidents) and Ops (the live Spark lake, container status and logs, dashboard health).
+- **Five MCP servers:** Airflow (runs, task logs), Athena (data, schemas, Glue job runs and their CloudWatch logs), Knowledge (runbooks, explainers, past incidents) and Ops (the live Spark lake, container status and logs, dashboard health), plus Actions (approved fixes only, never visible to the model).
 - **A health monitor** runs free, deterministic checks every 30 minutes (every feed and station current, containers up, dashboard reachable, last night's DAG run, yesterday curated). Only when a check newly fails does it run an AI investigation (capped per day) and send one alert with root cause, impact and fix.
 - **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
 - **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).
+- **Questions escalate.** "Did Glue run OK?" is routed as a question, but if the answer surfaces a real problem, a cheap triage step escalates it into a full diagnosis instead of stopping at a chat reply.
+
+### Remediation: propose → approve → execute → verify
+
+```
+diagnose → verify evidence → plan ──(no safe action)──────────────────────────→ remember
+                               └──→ await_approval ──rejected──────────────────→ remember
+                                    (LangGraph interrupt)  └─approved→ execute → validate → remember
+```
+
+- **A fixed catalog, not free-form commands.** The diagnosis may propose only `clear_task(run_id, task_id)`, `backfill_date(date)` or `restart_container(container)`. Code vets every proposal (exact run_id format, known task, a past day within 30 days, an allow-listed container, at most 3 actions, none at low confidence) before anyone is asked.
+- **The model never holds a write tool.** Actions live in a fifth MCP server (`actions`) whose tools are hidden from the model; only the graph's `execute` node calls them, after `interrupt()` returns an approval. Approve or reject in the web UI (or `y/N` in the CLI); the run resumes from the checkpoint, minutes or days later.
+- **Verified, not assumed.** `validate` polls the Airflow run until it finishes, counts the curated rows for the day it re-curated, waits for a restarted container, then re-runs every health check. The outcome is `resolved`, `partially_resolved` or `not_resolved`, and it is saved to incident memory with the fix, so "has this happened before?" also answers "and what fixed it?".
+- **The monitor never self-approves.** A proactive investigation that finds a fixable problem sends an alert saying a fix is waiting for approval.
 
 ## Guardrails: defense in depth
 
@@ -87,6 +103,7 @@ agent searches them during an investigation. The same store keeps verified past 
 | Output guardrail | Made-up evidence | Every evidence quote must appear verbatim in a real tool output, or confidence is lowered ([10 tests](tests/test_output_guardrail.py)) |
 | Memory hygiene | Poisoned memory | Only verified diagnoses are saved, by the graph; the model can't write memory |
 | Docker access | Container control from the agent | A socket proxy on a private network allows only reading containers (list, inspect, logs); start, stop, exec and create are refused (verified: 403) |
+| Remediation | Unsafe or invented fixes | Fixed action catalog, deterministic vetting, human approval (`interrupt()`), write tools hidden from the model, `ACTIONS_ENABLED` kill switch, a separate Airflow user and a restart-only Docker proxy for writes, re-checked inside the actions server, every attempt audit-logged ([tests](tests/test_remediation.py)) |
 
 ---
 
@@ -108,6 +125,8 @@ Seven failures injected into a **simulated** pipeline: fake tools with the real 
 
 Caveats: a single run per scenario, scenarios written by the agent's author, and keyword-based scoring. The suite also shows the main weakness: **healthy or "nothing to do" cases still take 17–18 tool calls**, so the agent over-investigates.
 
+**Remediation evals.** Every scenario now also scores the fix: the runner auto-approves whatever the agent proposes, executes it against the simulated world and validates it. Three scenarios were added where the right answer *is* an action (`container_oom` → restart weather-stream, `concurrent_glue_run` → re-run curate_day, `missed_day_backfill` → backfill 10-01), and `stuck_task` expects a re-run. The others expect **no action**: a bad Glue deploy must be fixed in code first (re-running would fail again, and the simulated world makes it fail), a recovered retry needs nothing. Two numbers are reported: *right fix plan* (all 10) and *resolved after approval* (the 4 that need a fix). Results for the extended suite: run `uv run python -m evals.run`.
+
 ---
 
 ## Tech stack
@@ -119,7 +138,7 @@ Caveats: a single run per scenario, scenarios written by the agent's author, and
 | Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
 | RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |
 | Interfaces | Terminal chat; FastAPI with Server-Sent Events + React (Vite) |
-| Testing | pytest (43 tests), a simulated eval suite with DuckDB, LangSmith tracing |
+| Testing | pytest (98 tests, incl. the full approve → execute → verify loop with a scripted model), a simulated eval suite with DuckDB, LangSmith tracing |
 | Tooling | Python 3.12, `uv` |
 
 ## Repository layout
@@ -130,10 +149,12 @@ src/pipeline_copilot/
   guardrails.py              input guardrail (Haiku)
   output_guardrail.py        evidence grounding check
   sql_guard.py               SQL guardrail
-  models.py                  Diagnosis / Evidence
+  models.py                  Diagnosis / Evidence / ProposedAction
+  remediation.py             action catalog + deterministic vetting (shared by graph and actions server)
+  airflow_actions_client.py  the only Airflow client that can write (clear task, trigger run)
   knowledge_base.py          chunking, Chroma index, incident memory
   airflow_client.py, athena_client.py
-  mcp_servers/               airflow_server, athena_server, knowledge_server
+  mcp_servers/               airflow, athena, knowledge, ops (read-only) + actions (approved fixes only)
   runtime.py                 starts MCP servers + memory; one question → stream of events
   cli.py                     terminal chat
   api.py                     FastAPI: SSE chat stream, saved conversations, serves the UI
@@ -196,6 +217,14 @@ cp .env.deploy.example .env.deploy        # fill in keys and passwords
 docker compose up -d --build
 ```
 
+**Turning on approved fixes** (off by default; fixes are still proposed, just not runnable):
+
+1. In Airflow, create a role (e.g. `CopilotOperator`) with only *DAG Runs: create, edit* and
+   *Task Instances: edit* on `daily_lake_maintenance`, and a user `agent_operator` with that role.
+2. In `.env.deploy`: `ACTIONS_ENABLED=true`, `AIRFLOW_ACTIONS_USERNAME` / `AIRFLOW_ACTIONS_PASSWORD`.
+   `docker-actions-proxy` (restart-only) is already in `docker-compose.yml`.
+3. `docker compose up -d --build`. Every attempted action is appended to `/data/actions_audit.jsonl`.
+
 ### CI/CD
 
 GitHub Actions ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)), the same setup as the
@@ -217,8 +246,7 @@ The eval suite itself is not in CI: it calls a real model, so it costs money and
 
 ## Limitations and future work
 
-- **Read-only by design:** it diagnoses and suggests fixes; a human applies them.
-- It sees the host through read-only views only: it can tell that a container crashed and why, but never restarts anything.
+- **Fixes need a human.** It runs only three kinds of action, only after approval, and only when `ACTIONS_ENABLED=true`; code changes (e.g. a broken Glue script) are always left to a person.
 - Over-investigation on simple cases (see Evaluation).
 - The web API has no login, so it binds to localhost only.
-- **Next:** auto-triggering from Airflow failure callbacks, and human-approved remediation (LangGraph `interrupt()`).
+- **Next:** auto-triggering from Airflow failure callbacks, and Approve/Reject buttons right in the Slack alert.

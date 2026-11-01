@@ -1,5 +1,8 @@
 """Run the eval suite: each scenario through the REAL graph, with fake tools.
 
+Every fix the agent proposes is auto-approved, executed against the simulated
+world and validated, so a run scores diagnosis AND remediation end to end.
+
     uv run python -m evals.run                                   # every scenario once
     uv run python -m evals.run --only schema_drift_magnitude     # one scenario
     uv run python -m evals.run --repeat 3                        # each scenario 3 times
@@ -7,10 +10,13 @@
 import argparse
 import asyncio
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from evals.fake_tools import make_fake_tools
 from evals.scenarios import SCENARIOS
@@ -23,15 +29,22 @@ RESULTS_DIR = Path(__file__).parent / "results"
 
 async def run_one(build, attempt: int) -> dict:
     s = build()                                             # a fresh, identical world every time
-    settings = load_agent_settings()
-    graph = build_graph(settings, await make_fake_tools(s.world))
-    # No checkpointer: each run is isolated. thread_id is still needed by the remember node.
-    config = {"configurable": {"thread_id": f"eval-{s.id}-{attempt}"}, "recursion_limit": 30}
+    # Actions on (against the fake world), and no real waiting between status checks
+    settings = replace(load_agent_settings(), actions_enabled=True, validation_poll_seconds=0,
+                       validation_timeout_seconds=5, container_settle_seconds=0)
+    # A fresh in-memory checkpointer per run: isolated, but able to pause for approval
+    graph = build_graph(settings, await make_fake_tools(s.world), checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": f"eval-{s.id}-{attempt}"}, "recursion_limit": 36}
     try:
         state = await graph.ainvoke({"messages": [HumanMessage(s.question)]}, config)
+        if state.get("__interrupt__"):
+            # The approver says yes: we're scoring whether the fix WORKS
+            await graph.ainvoke(Command(resume={"approved": True, "by": "eval"}), config)
+        state = (await graph.aget_state(config)).values
     except Exception as e:
         return {"scenario": s.id, "runbook_covered": s.runbook_covered, "correct": False,
-                "failure": f"{type(e).__name__}: {e}"}
+                "failure": f"{type(e).__name__}: {e}", "expects_fix": s.expects_fix,
+                "fix_ok": False, "resolved": False}
     return score(s, state, settings.llm_model)
 
 
@@ -41,8 +54,10 @@ def _line(r: dict) -> str:
         return f"{mark} {r['scenario']:28} FAILED: {r['failure']}"
     flags = " ".join(f for f, on in [("ungrounded", not r["grounded"]),
                                      ("CONFIDENTLY-WRONG", r["confidently_wrong"])] if on)
+    fix = ("fix=" + (", ".join(r["proposed"]) or "none") + (f" -> {r['outcome']}" if r.get("outcome") else "")
+           + ("" if r["fix_ok"] else " (WRONG FIX)"))
     return (f"{mark} {r['scenario']:28} got={r['category_got']:18} conf={r['confidence']:6} "
-            f"calls={r['tool_calls']:2} {_money(r['cost_usd'])} {flags}")
+            f"calls={r['tool_calls']:2} {_money(r['cost_usd'])} {flags}\n    {fix}")
 
 
 def _money(v) -> str:
@@ -58,6 +73,10 @@ def _summary(results: list[dict]) -> str:
         f"not covered {rate([r for r in results if not r['runbook_covered']])})",
         f"Grounded: {sum(r['grounded'] for r in scored)}/{len(scored)}   "
         f"Confidently wrong: {sum(r['confidently_wrong'] for r in scored)}",
+        f"Right fix plan: {sum(r.get('fix_ok', False) for r in results)}/{len(results)}   "
+        f"Resolved after approval (scenarios needing a fix): "
+        f"{sum(r.get('resolved', False) for r in results if r.get('expects_fix'))}/"
+        f"{sum(1 for r in results if r.get('expects_fix'))}",
     ]
     if scored:
         costs = [r["cost_usd"] for r in scored if r["cost_usd"] is not None]

@@ -20,7 +20,9 @@ from pydantic import BaseModel, Field
 
 from pipeline_copilot import auth, monitor
 from pipeline_copilot.config import PROJECT_ROOT
-from pipeline_copilot.runtime import list_threads, load_thread, new_thread_id, open_agent, run_turn
+from pipeline_copilot.runtime import (
+    list_threads, load_thread, new_thread_id, open_agent, resume_turn, run_turn,
+)
 from pipeline_copilot.showcase import get_showcase, list_showcase
 
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
@@ -54,6 +56,11 @@ class ChatRequest(BaseModel):
     thread_id: str | None = Field(default=None, pattern=r"^chat-[0-9-]+$")
 
 
+class DecisionRequest(BaseModel):
+    approved: bool
+    note: str | None = Field(default=None, max_length=300)
+
+
 class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
@@ -83,6 +90,7 @@ async def health(request: Request) -> dict:
     for tool, server in agent.tool_servers.items():
         servers.setdefault(server, []).append(tool)
     return {"status": "ok", "model": agent.settings.llm_model,
+            "actions_enabled": agent.settings.actions_enabled,
             "tools": [t.name for t in agent.tools], "servers": servers,
             "auth_enabled": auth.auth_enabled(), "owner": _is_owner(request)}
 
@@ -153,6 +161,26 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             yield _sse({"type": "done"})
 
     # no-cache + no proxy buffering, so each event reaches the browser immediately
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# --- Approve or reject the fix a conversation is waiting on ---
+# Streams the rest of the run (execution, validation) like /api/chat.
+@app.post("/api/threads/{thread_id}/decision", dependencies=[Depends(require_owner)])
+async def decision(thread_id: str, req: DecisionRequest) -> StreamingResponse:
+    lock = _thread_locks[thread_id]
+    if lock.locked():
+        raise HTTPException(409, "This conversation is still running.")
+
+    async def stream():
+        async with lock:
+            yield _sse({"type": "thread", "thread_id": thread_id})
+            async for event in resume_turn(app.state.agent, thread_id,
+                                           {"approved": req.approved, "by": "owner", "note": req.note}):
+                yield _sse(event)
+            yield _sse({"type": "done"})
+
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import DiagnosisCard from './DiagnosisCard.jsx'
+import FixCard from './FixCard.jsx'
 import { Alert, Check, Chevron, Clock } from './Icons.jsx'
 import Robot3D from './Robot3D.jsx'
 
-const SERVER_LABELS = { airflow: 'Airflow', athena: 'Athena', knowledge: 'Knowledge', agent: 'Agent' }
+const SERVER_LABELS = { airflow: 'Airflow', athena: 'Athena', knowledge: 'Knowledge', ops: 'Ops', agent: 'Agent' }
 
 // Pair each tool call with its result (results arrive in call order per tool name)
 function buildSteps(events) {
@@ -39,10 +40,19 @@ function useElapsed(startedAt, finishedAt) {
 }
 
 // One question and everything the agent did to answer it
-export default function Turn({ turn, toolServers }) {
+const last = (events, type) => events.findLast((e) => e.type === type)
+
+// onDecide: approve/reject the pending fix (owner, live mode, latest turn only)
+export default function Turn({ turn, toolServers, onDecide, deciding }) {
   const steps = buildSteps(turn.events)
   const answers = turn.events.filter((e) => e.type === 'answer')
-  const diagnosis = turn.events.find((e) => e.type === 'diagnosis')
+  const diagnosis = last(turn.events, 'diagnosis')
+  const plan = last(turn.events, 'plan')?.plan
+  const approval = last(turn.events, 'approval')?.approval
+  const remediation = last(turn.events, 'remediation')?.remediation
+  const waiting = Boolean(last(turn.events, 'approval_required')) && !approval
+  const progress = turn.events.filter((e) => e.type === 'progress')
+  const escalated = last(turn.events, 'escalated')
   // Show the diagnosis card only when the investigation actually found a problem
   const problem = diagnosis && diagnosis.diagnosis.category !== 'no_problem_found' ? diagnosis.diagnosis : null
   const errors = turn.events.filter((e) => e.type === 'error')
@@ -96,7 +106,12 @@ export default function Turn({ turn, toolServers }) {
             </div>
           ))}
 
+          {escalated && <p className="escalated"><Alert size={14} /> {escalated.text}</p>}
           {problem && <DiagnosisCard d={problem} />}
+          {problem && (
+            <FixCard plan={plan} waiting={waiting} approval={approval} remediation={remediation}
+              progress={progress} onDecide={onDecide} deciding={deciding} />
+          )}
           {turn.pending && answers.length > 0 && !diagnosis && (
             <p className="thinking">Checking the findings<span className="dots"><i /><i /><i /></span></p>
           )}

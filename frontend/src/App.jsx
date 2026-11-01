@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getHealth, getMonitor, getShowcase, getShowcaseList, getThread, getThreads, logout, runMonitor, streamChat } from './api.js'
+import { getHealth, getMonitor, getShowcase, getShowcaseList, getThread, getThreads, logout, runMonitor, streamChat, streamDecision } from './api.js'
 import { Book, Lock, Plus, Send } from './Icons.jsx'
 import LoginModal from './LoginModal.jsx'
 import Robot3D from './Robot3D.jsx'
@@ -175,6 +175,28 @@ export default function App() {
     }
   }
 
+  // Approve or reject the fix the latest turn is waiting on; the rest of the run
+  // (execution, verification) streams into that same turn
+  async function decide(approved) {
+    if (busy || !threadId) return
+    setBusy(true)
+    updateLastTurn((t) => ({ ...t, pending: true, startedAt: t.startedAt ?? Date.now(), finishedAt: null }))
+    try {
+      await streamDecision({
+        threadId,
+        approved,
+        onEvent: (ev) => {
+          if (ev.type !== 'thread' && ev.type !== 'done') updateLastTurn((t) => ({ ...t, events: [...t.events, ev] }))
+        },
+      })
+    } catch (e) {
+      updateLastTurn((t) => ({ ...t, events: [...t.events, { type: 'error', message: e.message }] }))
+    } finally {
+      updateLastTurn((t) => ({ ...t, pending: false, finishedAt: Date.now() }))
+      setBusy(false)
+    }
+  }
+
   const title =
     view.kind === 'showcase' ? view.item.title
       : view.kind === 'chat' ? (turns[0]?.question ?? 'New conversation')
@@ -274,7 +296,9 @@ export default function App() {
               </div>
             )
           })()}
-          <div className="readonly"><Lock size={12} /> Read-only: it investigates, you decide</div>
+          <div className="readonly"><Lock size={12} /> {health?.actions_enabled
+            ? 'Fixes run only after you approve them'
+            : 'Read-only: it investigates, you decide'}</div>
           {health?.auth_enabled && (
             owner
               ? <button className="link" onClick={signOut} disabled={busy}>Sign out</button>
@@ -342,7 +366,10 @@ export default function App() {
             </div>
           )}
 
-          {view.kind !== 'home' && turns.map((t, i) => <Turn key={i} turn={t} toolServers={toolServers} />)}
+          {view.kind !== 'home' && turns.map((t, i) => (
+            <Turn key={i} turn={t} toolServers={toolServers} deciding={busy}
+              onDecide={view.kind === 'chat' && owner && i === turns.length - 1 ? decide : null} />
+          ))}
           {error && <p className="error banner">{error}</p>}
           <div ref={bottomRef} />
         </div>
