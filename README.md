@@ -1,16 +1,26 @@
 # Pipeline Copilot
 
-**Live demo: [pipeline-copilot.duckdns.org](https://pipeline-copilot.duckdns.org)**: replay real investigations, including the one where it found a silent bug in my pipeline.
+<p align="center">
+  <img src="docs/copilot-3d.png" alt="The Pipeline Copilot robot, modelled in Blender" width="240">
+</p>
 
-**An AI on-call agent for data pipelines.** Ask it why something looks wrong and it investigates the way an on-call engineer would: it reads Airflow runs and logs, queries the data lake, checks the team's runbooks and past incidents, then returns a structured diagnosis in which **every piece of evidence is verified against real tool output**.
+<p align="center">
+  <b>An AI on-call agent for data pipelines: it finds the root cause, proposes a fix, and runs it only after you approve.</b><br>
+  <a href="https://pipeline-copilot.duckdns.org">Live demo</a> ·
+  <a href="docs/evals.md">Eval log</a> ·
+  <a href="https://github.com/mahendramahato/weather-seismic-pipeline">The pipeline it watches</a>
+</p>
 
-Then it **fixes it, with a human in the loop**: it proposes a typed fix (re-run a task, backfill a day, restart a container), pauses for your approval, runs exactly what you approved, and **checks that it worked** (the run succeeded, the data is back, health checks are green).
+Ask it why something looks wrong (or let its monitor notice first) and it works the way an on-call engineer would:
 
-<img src="docs/copilot-3d.png" alt="The Pipeline Copilot robot, modelled in Blender" width="220" align="right">
+| | What it does | How |
+|---|---|---|
+| 🔎 **Investigate** | Reads Airflow runs and logs, queries the data lake, checks containers, memory, CPU and disk, searches the runbooks and past incidents | LangGraph agent loop over 4 read-only MCP servers, RAG over runbooks |
+| 🩺 **Diagnose** | A typed diagnosis: category, root cause, impact, and **evidence quotes that code verifies against real tool output** | Pydantic structured output + a deterministic grounding check |
+| 🛠 **Fix, with you in the loop** | Proposes a typed fix (re-run a task, backfill a day, restart a container), **pauses for your approval**, runs exactly that | LangGraph `interrupt()`, a separate actions MCP server the model never sees |
+| ✅ **Verify** | Waits for the run, checks the data is back, re-runs every health check: *resolved*, *partially resolved* or *not resolved* | Deterministic validation; the outcome is saved to incident memory |
 
-Built with **LangGraph** (agent loop), **MCP** (five tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
-
-It runs against my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline) (NOAA + USGS → Kafka → Spark → S3 → Glue → Athena, orchestrated by Airflow), but nothing in the design is specific to it.
+Built with **LangGraph**, **MCP** (five tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**; Claude Opus 5.5 for the agent and Claude Haiku 4.5 for the cheap classifiers (or OpenAI models, switchable). It runs against my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline) (NOAA + USGS → Kafka → Spark → S3 → Glue → Athena, orchestrated by Airflow), but nothing in the design is specific to it.
 
 ---
 
@@ -61,11 +71,44 @@ you> Why is the curated data stuck at 2026-09-30?
 
 Each ✓ means code found that exact text in that tool's output. The `unverified` list separates what the agent observed from what it couldn't check.
 
+## What a fix looks like
+
+When the diagnosis has a safe, catalogued fix, the web UI shows it with **Approve & run / Reject**. Nothing runs until you approve; afterwards each step is verified and the card shows the outcome:
+
+<p align="center"><img src="docs/fix-flow.png" alt="Proposed fix waiting for approval, then the applied fix verified as resolved" width="640"></p>
+
+<sub>Screenshot from the simulated `container_oom` scenario (weather-stream OOM-killed → restart → container running, health checks green).</sub>
+
+The terminal chat asks the same question with `Apply this fix? [y/N]`. Problems that need a code change (a broken Glue script) get **no** automated action, just the steps for a human, and a restart while the VM is still out of memory is honestly reported as *partially resolved*.
+
 ---
 
 ## Architecture
 
 ![Architecture: React frontend, the LangGraph agent, its MCP servers and the RAG knowledge base](docs/architecture.svg)
+
+<sub>The diagram shows the investigation half; the full agent graph, including the fix path and the actions server, is below.</sub>
+
+```mermaid
+flowchart LR
+    Q([question / monitor alert]) --> G[input guardrail]
+    G -->|off-topic / unsafe| X([refused])
+    G --> A[agent]
+    A <-->|read-only MCP tools| T[(Airflow · Athena · Knowledge · Ops)]
+    A -->|plain question| TR{triage:<br>problem found?}
+    TR -->|no| E([answer])
+    TR -->|yes| D
+    A -->|incident| D[diagnose]
+    D --> V[verify evidence]
+    V --> P[plan: vet actions]
+    P -->|no safe action| R[remember]
+    P --> H{{await approval<br>interrupt}}
+    H -->|rejected| R
+    H -->|approved| EX[execute<br>actions MCP]
+    EX --> VA[validate:<br>run, data, health]
+    VA --> R
+    R --> E2([diagnosis + outcome])
+```
 
 **The frontend** is a React web UI: you ask there, and every step streams back live.
 **The agent** is a LangGraph state graph: a cheap guardrail first, then an investigation loop,
@@ -76,8 +119,8 @@ are split by section and embedded into Chroma offline (whenever the docs change)
 agent searches them during an investigation. The same store keeps verified past incidents.
 
 - **Five MCP servers:** Airflow (runs, task logs), Athena (data, schemas, Glue job runs and their CloudWatch logs), Knowledge (runbooks, explainers, past incidents) and Ops (the live Spark lake, container status and logs, dashboard health), plus Actions (approved fixes only, never visible to the model).
-- **A health monitor** runs free, deterministic checks every 30 minutes (every feed and station current, containers up, dashboard reachable, last night's DAG run, yesterday curated, host memory / CPU / disk and containers at their memory limit). Each pass also records a resource snapshot, so after a crash the agent can see what memory looked like *before* it.
-- **Resource forensics.** `get_host_resources` (host memory, load vs cores, disk, every container's memory vs its limit and CPU %) and `get_resource_history` let it tell apart "weather-stream hit its own limit", "the whole VM ran out of memory because another app leaked" (Docker doesn't flag those kills as OOM) and "the CPU is saturated, so streaming falls behind without crashing". Only when a check newly fails does it run an AI investigation (capped per day) and send one alert with root cause, impact and fix.
+- **A health monitor** runs free, deterministic checks every 30 minutes (every feed and station current, containers up, dashboard reachable, last night's DAG run, yesterday curated, host memory / CPU / disk and containers at their memory limit). Only when a check newly fails does it run an AI investigation (capped per day) and send one alert with root cause, impact and the fix waiting for approval. Each pass also records a resource snapshot, so after a crash the agent can see what memory looked like *before* it.
+- **Resource forensics.** `get_host_resources` (host memory, load vs cores, disk, every container's memory vs its limit and CPU %) and `get_resource_history` let it tell apart "weather-stream hit its own limit", "the whole VM ran out of memory because another app leaked" (Docker doesn't flag those kills as OOM) and "the CPU is saturated, so streaming falls behind without crashing".
 - **The agent decides, the servers do.** Each MCP server owns its own credentials; the agent process never holds the Airflow password or AWS keys. The same servers also work from Claude Code (`.mcp.json`).
 - **Diagnosis is a separate, typed step.** The agent investigates freely, then a focused call extracts a Pydantic `Diagnosis` (category, root cause, evidence quotes, impact, fix, runbooks used, what's unverified, confidence).
 - **Questions escalate.** "Did Glue run OK?" is routed as a question, but if the answer surfaces a real problem, a cheap triage step escalates it into a full diagnosis instead of stopping at a chat reply.
@@ -100,7 +143,7 @@ diagnose → verify evidence → plan ──(no safe action)──────�
 | Layer | Stops | Enforced by |
 |---|---|---|
 | Input guardrail | Off-topic requests, prompt injection, requests for secrets or destruction | Claude Haiku classifier, fixed refusal text, fails closed |
-| Read-only credentials | Any change to Airflow or AWS | Airflow Viewer role; IAM policy with no write access to data ([infra/iam](infra/iam/pipeline-copilot-readonly.json)) |
+| Read-only investigation | Any change to Airflow or AWS while investigating | Airflow Viewer role; IAM policy with no write access to data ([infra/iam](infra/iam/pipeline-copilot-readonly.json)) |
 | SQL guardrail | `DROP`, stacked statements, `WITH ... INSERT`, other databases, unknown tables, huge results | `sqlglot` parse-tree checks, forced `LIMIT` ([21 tests](tests/test_sql_guard.py)) |
 | Cost limits | Runaway queries | Athena workgroup 1 GB scan cap, row and log-size caps, recursion limit |
 | Output guardrail | Made-up evidence | Every evidence quote must appear verbatim in a real tool output, or confidence is lowered ([10 tests](tests/test_output_guardrail.py)) |
@@ -112,7 +155,9 @@ diagnose → verify evidence → plan ──(no safe action)──────�
 
 ## Evaluation
 
-Seven failures injected into a **simulated** pipeline: fake tools with the real tool schemas, the real SQL guardrail, real SQL in DuckDB and a fixed clock. They run through the real agent graph and are scored by code (category, required facts, no red herrings, grounding). Four scenarios deliberately have **no runbook**.
+Failures injected into a **simulated** pipeline: fake tools with the real tool schemas, the real SQL guardrail, real SQL in DuckDB and a fixed clock. They run through the real agent graph and are scored by code (category, required facts, no red herrings, grounding). Four scenarios deliberately have **no runbook**.
+
+**Diagnosis results** (first 7 scenarios, run 2026-10-07):
 
 | Scenario | Expected | Result | Confidence |
 |---|---|---|---|
@@ -128,7 +173,19 @@ Seven failures injected into a **simulated** pipeline: fake tools with the real 
 
 Caveats: a single run per scenario, scenarios written by the agent's author, and keyword-based scoring. The suite also shows the main weakness: **healthy or "nothing to do" cases still take 17–18 tool calls**, so the agent over-investigates.
 
-**Remediation evals.** Every scenario now also scores the fix: the runner auto-approves whatever the agent proposes, executes it against the simulated world and validates it. Three scenarios were added where the right answer *is* an action (`container_oom` → restart weather-stream, `concurrent_glue_run` → re-run curate_day, `missed_day_backfill` → backfill 10-01), and `stuck_task` expects a re-run. The others expect **no action**: a bad Glue deploy must be fixed in code first (re-running would fail again, and the simulated world makes it fail), a recovered retry needs nothing. Two resource scenarios test the honest side of fixing: in `host_memory_pressure` another app on the VM leaks memory until the kernel kills weather-stream; restarting it is allowed, but validation must report **partially_resolved** because host memory is still above 90%. In `cpu_saturation` a runaway app pins the CPU and nothing crashes, so the right plan is *no action* (a human stops the other app). Two numbers are reported: *right fix plan* (all 12) and *fix outcome as expected* (the 5 that need or allow a fix). Results for the extended suite: run `uv run python -m evals.run`.
+**Remediation evals.** Every scenario now also scores the fix: the runner auto-approves whatever the agent proposes, executes it against the simulated world (clearing a task really re-runs it, a backfill really re-curates the day, a restart really brings the feed back) and validates it. Five scenarios were added:
+
+| Scenario | What's broken | Right fix |
+|---|---|---|
+| `container_oom` | weather-stream OOM-killed, weather stale | restart weather-stream → *resolved* |
+| `concurrent_glue_run` | a manual run clashed with the nightly one | re-run `curate_day` (or backfill yesterday) → *resolved* |
+| `missed_day_backfill` | an S3 timeout three nights ago left a hole on 10-01 | backfill 2026-10-01 → *resolved* |
+| `host_memory_pressure` | another app on the VM leaked to 14 GB; the kernel killed weather-stream without an OOM flag | restart is allowed but must be reported *partially resolved* (or no action) |
+| `cpu_saturation` | another app pins all cores; nothing crashed, data is 2 h late | **no action**: a human stops the other app |
+
+The existing scenarios expect no action, except `stuck_task` (re-run `curate_day`); a bad Glue deploy must be fixed in code first, and the simulated world makes a re-run fail again. Two more numbers are reported: *right fix plan* (all 12) and *fix outcome as expected* (the 5 that need or allow a fix). `tests/test_remediation.py` checks, without any LLM, that each intended fix really resolves its world.
+
+> The model-in-the-loop results for the 12-scenario suite are pending; run `uv run python -m evals.run` (about $1 on Opus with caching).
 
 ---
 
@@ -155,6 +212,8 @@ src/pipeline_copilot/
   models.py                  Diagnosis / Evidence / ProposedAction
   remediation.py             action catalog + deterministic vetting (shared by graph and actions server)
   airflow_actions_client.py  the only Airflow client that can write (clear task, trigger run)
+  resources.py               host + container memory/CPU/disk, thresholds, 7-day history
+  monitor.py                 30-min health checks → investigation → alert (never self-approves)
   knowledge_base.py          chunking, Chroma index, incident memory
   airflow_client.py, athena_client.py
   mcp_servers/               airflow, athena, knowledge, ops (read-only) + actions (approved fixes only)
@@ -165,9 +224,10 @@ frontend/                    React (Vite) UI: live tool steps, diagnosis card wi
                              fix card (approve/reject), the 3D robot (Blender GLB in React Three Fiber)
 knowledge/                   pipeline overview + runbooks (the RAG source)
 evals/                       simulated world, fake tools, scenarios, runner
-tests/                       SQL guard, retrieval, grounding tests
+tests/                       SQL guard, retrieval, grounding, remediation loop, resources
+frontend/public/models/      copilot.glb, the robot exported from Blender
 infra/iam/                   read-only IAM policy
-docs/                        recon notes, eval log
+docs/                        recon notes, eval log, architecture, screenshots
 ```
 
 ---
@@ -197,7 +257,7 @@ uv run pipeline-copilot-api
 # Tests (no network needed)
 uv run pytest
 
-# Eval suite (~$0.60 on Opus with caching)
+# Eval suite (~$1 on Opus with caching, 12 scenarios)
 uv run python -m evals.run
 LLM_MODEL=gpt-6.1-sol uv run python -m evals.run   # same suite on another model
 uv run python -m evals.run --only stuck_task --repeat 3
@@ -236,8 +296,10 @@ weather-seismic project:
 
 - **CI** on every push and pull request, in parallel:
   - **Python:** `ruff` lint, then `pytest`: the SQL guardrail, retrieval quality, the evidence
-    grounding check, and the eval harness (every scenario builds, every real MCP tool has a
-    fake). No API keys needed: nothing calls a model, Airflow or AWS.
+    grounding check, the eval harness (every scenario builds, every real MCP tool has a
+    fake), the fix loop end to end with a scripted model (approve, reject, refusals, every
+    scenario's intended fix resolving), and resource parsing. No API keys needed: nothing
+    calls a model, Airflow or AWS.
   - **Frontend:** production build.
   - **Docker:** the production image builds.
 - **CD** on push to `main`, only after all CI jobs pass: SSH to the server with a deploy-only
@@ -250,7 +312,8 @@ The eval suite itself is not in CI: it calls a real model, so it costs money and
 
 ## Limitations and future work
 
-- **Fixes need a human.** It runs only three kinds of action, only after approval, and only when `ACTIONS_ENABLED=true`; code changes (e.g. a broken Glue script) are always left to a person.
-- Over-investigation on simple cases (see Evaluation).
-- The web API has no login, so it binds to localhost only.
-- **Next:** auto-triggering from Airflow failure callbacks, and Approve/Reject buttons right in the Slack alert.
+- **Fixes need a human.** It runs only three kinds of action, only after approval, and only when `ACTIONS_ENABLED=true` (off on the public instance); code changes (e.g. a broken Glue script) are always left to a person.
+- **It can't restart other apps.** If Soundly or the scanner is starving the VM, it names the culprit and the lasting fix, but stopping or limiting it is your call.
+- **Resource history is coarse:** one snapshot per monitor pass (~30 min), so a short spike between passes can be missed.
+- Over-investigation on simple cases (see Evaluation), and the extended eval suite still needs a model run.
+- **Next:** auto-triggering from Airflow failure callbacks, Approve/Reject buttons right in the Slack alert, and memory/CPU limits for the other apps on the VM.
