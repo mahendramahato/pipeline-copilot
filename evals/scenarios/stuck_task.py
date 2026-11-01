@@ -34,5 +34,7 @@ def build() -> Scenario:
         must_mention=["curate_day"],
         must_not_mention=["partition"],
         runbook_covered=False,
+        # Re-running curate_day in this run re-curates yesterday
+        fix_options=[[{"action": "clear_task", "run_id": run_id, "task_id": "curate_day"}]],
         notes="Running 3.5h vs a 10-minute job timeout (in the overview doc) means stuck, not slow.",
     )

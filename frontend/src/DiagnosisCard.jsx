@@ -21,7 +21,7 @@ export default function DiagnosisCard({ d }) {
           <p>{d.impact}</p>
         </div>
         <div className="dx-section fix">
-          <h4><Wrench size={14} /> Suggested fix</h4>
+          <h4><Wrench size={14} /> What to do</h4>
           <p>{d.suggested_fix}</p>
         </div>
       </div>

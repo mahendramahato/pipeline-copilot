@@ -42,6 +42,24 @@ SCHEMAS = {
 }
 
 
+# Typical memory (MB) / CPU % of each container on a healthy day, and the stream jobs' limits
+BASE_STATS = {
+    "kafka": (1100, None, 6.0), "producer": (180, None, 0.8), "weather-stream": (2600, 4096, 22.0),
+    "seismic-stream": (2300, 4096, 18.0), "airflow": (1400, None, 4.0), "airflow-postgres": (220, None, 0.5),
+    "api": (210, None, 0.6), "web": (40, None, 0.1), "copilot": (600, None, 0.4), "kafka-ui": (350, None, 0.3),
+    "spark": (900, None, 1.0),
+}
+HOST_TOTAL_MB, HOST_OS_MB, HOST_CPUS = 24000, 1500, 4
+
+
+def host_for(containers: list[dict], load1: float = 0.9, disk_used_pct: float = 41.0) -> dict:
+    """Host numbers consistent with the containers: used = their memory + the OS."""
+    used = HOST_OS_MB + sum(c["mem_mb"] for c in containers)
+    return {"cpus": HOST_CPUS, "mem_total_mb": HOST_TOTAL_MB, "mem_available_mb": max(HOST_TOTAL_MB - used, 0),
+            "swap_used_mb": 0, "load1": load1, "load5": round(load1 * 0.95, 2), "load15": round(load1 * 0.9, 2),
+            "disk_used_pct": disk_used_pct, "disk_free_gb": round(190 * (1 - disk_used_pct / 100), 1)}
+
+
 @dataclass
 class World:
     now: datetime
@@ -57,6 +75,46 @@ class World:
     containers: dict[str, dict] = field(default_factory=dict)             # name -> overrides (state, status, restarts...)
     container_logs: dict[str, str] = field(default_factory=dict)          # name -> log text
     dashboard: dict[str, dict] = field(default_factory=dict)              # check label -> overrides
+    # Remediation: what happens when the agent's approved fix runs in this world.
+    # curation_broken: the Glue script itself is wrong, so re-running curation fails again.
+    curation_broken: bool = False
+    # Resources. Empty = healthy defaults (BASE_STATS, a quiet host, a calm 24 h history).
+    extra_containers: dict[str, dict] = field(default_factory=dict)       # other apps on the VM: name -> overrides
+    container_stats: dict[str, dict] = field(default_factory=dict)        # name -> {mem_mb, limit_mb, cpu_pct}
+    host_load1: float = 0.9
+    resource_history: list[dict] | None = None                            # None = generate a calm one
+    actions: list[dict] = field(default_factory=list)                     # every action executed
+    tables_version: int = 0                                                # bumped when tables change
+
+    # --- Rebuild ONE day of curated data from raw (a successful curate_day for that day) ---
+    def recurate_day(self, day: str) -> None:
+        raw_w = [r for r in self.tables["raw_weather"] if r["date"] == day]
+        raw_s = [r for r in self.tables["raw_seismic"] if r["date"] == day]
+        cw = _latest(raw_w, ("station_id", "observed_at"), "ingested_at")
+        keep = lambda t: [r for r in self.tables[t] if r["date"] != day]
+        self.tables["curated_weather"] = keep("curated_weather") + cw
+        self.tables["curated_seismic"] = keep("curated_seismic") + _latest(raw_s, ("event_id",), "updated_at")
+        self.tables["curated_weather_daily"] = keep("curated_weather_daily") + _daily(cw)
+        self.tables_version += 1
+
+    # --- Simulate Airflow running tasks of a run again (after a clear or a new trigger) ---
+    # Every re-run task succeeds, except curate_day while the script is broken.
+    def rerun(self, run_id: str, from_task: str, target_day: str) -> None:
+        run = next(r for r in self.dag_runs if r["dag_run_id"] == run_id)
+        failed = False
+        for t in self.task_instances[run_id]:
+            if TASKS.index(t["task_id"]) < TASKS.index(from_task):
+                continue
+            t["try_number"] += 1
+            if failed:
+                t["state"] = "upstream_failed"
+            elif t["task_id"] == "curate_day" and self.curation_broken:
+                t["state"], failed = "failed", True
+            else:
+                t["state"], t["duration"] = "success", t["duration"] or 80.0
+                if t["task_id"] == "curate_day":
+                    self.recurate_day(target_day)
+        run.update(state="failed" if failed else "success", end_date=_iso(self.now + timedelta(minutes=3)))
 
     # --- Rebuild curated tables from raw, up to yesterday (what the nightly Glue job does) ---
     # Scenarios break RAW data, then call this so the damage flows downstream realistically.

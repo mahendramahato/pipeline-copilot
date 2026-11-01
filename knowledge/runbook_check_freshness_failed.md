@@ -11,7 +11,8 @@
 - weather-stream or seismic-stream Spark container stopped or crash-looping.
 - producer container stopped, or NOAA/USGS API down or rate limiting.
 - Kafka container down (both datasets stale at once points here or to the producer).
-- VM disk full (writes fail).
+- The VM ran out of memory, CPU or disk (see runbook_resource_exhaustion.md): an OOM-killed
+  stream job (exit 137) or a stream that runs but falls behind.
 
 ## How to check
 - get_live_lake_freshness: which feed stopped and when (minutes, not the next nightly run):

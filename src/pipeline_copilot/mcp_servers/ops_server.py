@@ -15,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from pipeline_copilot import ops
+from pipeline_copilot import ops, resources
 from pipeline_copilot.sql_guard import UnsafeQueryError
 
 mcp = FastMCP("ops", log_level="WARNING")
@@ -107,9 +107,43 @@ def check_dashboard() -> str:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def get_host_resources(
+    as_json: Annotated[bool, Field(description="Raw JSON instead of text (used by the monitor).")] = False,
+) -> str:
+    """Memory, CPU and disk RIGHT NOW: host memory used/available and swap, CPU load vs cores,
+    disk of the lake volume, and every running container's memory (vs its limit), CPU % and pids,
+    largest first.
+
+    Use when a container was OOM-killed or crash-loops (was the whole VM out of memory, and
+    who is using it?), or when data is late but nothing crashed (is the CPU saturated?).
+    """
+    try:
+        snap = resources.snapshot(ops.docker_url(), ops.lake_dir())
+    except (httpx.HTTPError, OSError) as e:
+        return f"Resource stats unavailable ({type(e).__name__})."
+    return json.dumps(snap) if as_json else resources.format_snapshot(snap)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def get_resource_history(
+    hours: Annotated[int, Field(description="How far back to look.", ge=1, le=168)] = 24,
+    container: Annotated[str | None, Field(description="Show one container's memory/CPU over time instead of the top 3.")] = None,
+) -> str:
+    """Host memory %, CPU load, disk % and the biggest containers over time (one snapshot per
+    health-monitor pass, ~30 min apart). Use to see what happened BEFORE a crash: memory climbing
+    for hours (a leak, another app growing) vs a sudden spike, and who grew.
+    """
+    path = resources.history_path()
+    if path is None:
+        return "Resource history is not configured here (RESOURCE_HISTORY not set)."
+    return resources.format_history(resources.read_history(path, hours), container)
+
+
+@mcp.tool(annotations=READ_ONLY)
 def run_health_checks() -> str:
     """Run every deterministic health check at once and return JSON: lake freshness per
-    dataset and station, expected containers running, dashboard reachable.
+    dataset and station, expected containers running, dashboard reachable, host memory,
+    CPU and disk below their thresholds, no container at its memory limit.
     Each item: {"check", "ok", "detail"}. Fast and free: no model, no AWS.
     """
     try:

@@ -69,7 +69,8 @@ def search_past_incidents(
         return "No past incidents recorded yet."
     return "\n\n---\n\n".join(
         f"[incident {r['id']} | confidence={r['confidence']} | seen {r.get('times_seen', 1)}x | conversation={r['thread_id']}]\n"
-        f"{r['text']}\nFix suggested: {r['fix']}\nOriginal question: {r['question']}"
+        f"{r['text']}\nFix suggested: {r['fix']}\nWhat was done: {r.get('outcome', 'unknown')}\n"
+        f"Original question: {r['question']}"
         for r in results
     )
 

@@ -10,12 +10,17 @@ import duckdb
 import sqlglot
 from langchain_core.tools import BaseTool, StructuredTool
 
-from evals.world import DAG_ID, SCHEMAS, STATIONS, World
-from pipeline_copilot import ops
+from evals.world import BASE_STATS, DAG_ID, SCHEMAS, STATIONS, TASKS, World, host_for
+from pipeline_copilot import ops, resources
+from pipeline_copilot import remediation as rem
 from pipeline_copilot.athena_client import QueryResult
 from pipeline_copilot.config import load_knowledge_settings
 from pipeline_copilot.knowledge_base import search
-from pipeline_copilot.mcp_servers import airflow_server, athena_server, knowledge_server, ops_server
+from pipeline_copilot.mcp_servers import actions_server, airflow_server, athena_server, knowledge_server, ops_server
+
+# Container -> the lake dataset it feeds (restarting it makes that feed fresh again)
+CONTAINER_FEEDS = {"weather-stream": ("weather",), "seismic-stream": ("seismic",),
+                   "producer": ("weather", "seismic"), "kafka": ("weather", "seismic")}
 from pipeline_copilot.sql_guard import UnsafeQueryError, check_query
 
 DATABASE = "weather_seismic"
@@ -70,7 +75,13 @@ def _glue_table(world: World, table: str, version: dict | None = None) -> dict:
 
 
 def _impls(world: World) -> dict:
-    con = _duckdb(world)
+    # The world's tables only change when a fix re-curates a day: reload DuckDB then
+    db = {"con": _duckdb(world), "version": world.tables_version}
+
+    def execute(query: str):
+        if db["version"] != world.tables_version:
+            db["con"], db["version"] = _duckdb(world), world.tables_version
+        return db["con"].execute(query)
     not_found = lambda what: f'Error 404 from Airflow: {{"detail":"{what} was not found"}}'
 
     def list_dags():
@@ -131,7 +142,7 @@ def _impls(world: World) -> dict:
             return f"Blocked by SQL guardrail: {e}"
         try:
             duck_sql = sqlglot.transpile(safe_sql, read="athena", write="duckdb")[0]
-            cur = con.execute(duck_sql)
+            cur = execute(duck_sql)
             columns = [d[0] for d in cur.description]
             rows = cur.fetchmany(101)                # real client fetches max_rows=100
         except Exception as e:
@@ -175,7 +186,37 @@ def _impls(world: World) -> dict:
     def _containers() -> list[dict]:
         base = [{"name": n, "state": "running", "status": "Up 3 days", "restarts": 0, "exit_code": 0,
                  "oom_killed": False} for n in ops.DEFAULT_EXPECTED.split(",") + ["copilot", "kafka-ui", "spark"]]
+        base += [{"name": n, "state": "running", "status": "Up 2 days", "restarts": 0, "exit_code": 0,
+                  "oom_killed": False, **extra} for n, extra in world.extra_containers.items()]
         return sorted(({**c, **world.containers.get(c["name"], {})} for c in base), key=lambda c: c["name"])
+
+    # ---- Resources: running containers' stats, a host consistent with them, history ----
+    def _snapshot() -> dict:
+        stats = []
+        for c in _containers():
+            if c["state"] != "running":
+                continue
+            mem, limit, cpu = BASE_STATS.get(c["name"], (150, None, 0.5))
+            stats.append({"name": c["name"], "mem_mb": mem, "limit_mb": limit, "cpu_pct": cpu, "pids": 30,
+                          **world.container_stats.get(c["name"], {})})
+        stats.sort(key=lambda c: -c["mem_mb"])
+        return {"at": world.now.isoformat(timespec="seconds"), "host": host_for(stats, world.host_load1),
+                "containers": stats}
+
+    def _history() -> list[dict]:
+        if world.resource_history is not None:
+            return world.resource_history
+        snap = _snapshot()
+        return [{**snap, "at": (world.now - timedelta(minutes=30 * i)).isoformat(timespec="seconds")}
+                for i in range(48, 0, -1)]
+
+    def get_host_resources(as_json=False):
+        snap = _snapshot()
+        return json.dumps(snap) if as_json else resources.format_snapshot(snap)
+
+    def get_resource_history(hours=24, container=None):
+        since = (world.now - timedelta(hours=hours)).isoformat()
+        return resources.format_history([r for r in _history() if r["at"] >= since], container)
 
     def _dashboard() -> dict:
         base = {"api_health": {"ok": True, "status": 200, "ms": 12},
@@ -194,7 +235,7 @@ def _impls(world: World) -> dict:
         except UnsafeQueryError as e:
             return f"Blocked by SQL guardrail: {e}"
         try:
-            cur = con.execute(safe_sql)
+            cur = execute(safe_sql)
             cols, rows = [d[0] for d in cur.description], cur.fetchmany(100)
         except duckdb.Error as e:
             return f"Query FAILED: {str(e).splitlines()[0]}\nSQL that ran: {safe_sql}"
@@ -228,6 +269,7 @@ def _impls(world: World) -> dict:
                                "detail": f"{c['state']} ({c['status']}), restarts={c['restarts']}"})
         for label, r in _dashboard().items():
             checks.append({"check": f"dashboard {label}", "ok": r["ok"], "detail": f"HTTP {r.get('status')}"})
+        checks += resources.checks(_snapshot())      # the REAL resource thresholds
         return json.dumps(checks)
 
     # ---- Glue job runs, derived from each DAG run's curate_day task ----
@@ -239,11 +281,11 @@ def _impls(world: World) -> dict:
                 continue
             logs = " ".join(v for k, v in world.task_logs.items() if k[0] == run["dag_run_id"] and k[1] == "curate_day")
             error = logs.split("ErrorMessage: ", 1)[1].split("\n")[0] if "ErrorMessage: " in logs else None
-            target = run["dag_run_id"][11:21]  # scheduled__YYYY-MM-DD -> curates the day before
-            day = (datetime.fromisoformat(target) - timedelta(days=1)).strftime("%Y-%m-%d")
+            day = rem.target_date_of(run["dag_run_id"], run.get("conf"))   # the day this run curates
             runs.append({"id": "jr_" + hashlib.sha256(run["dag_run_id"].encode()).hexdigest(), "date": day,
                          "state": {"success": "SUCCEEDED", "failed": "FAILED"}.get(task["state"], "RUNNING"),
-                         "started": run["start_date"], "duration": task["duration"], "error": error})
+                         "started": run["start_date"], "duration": task["duration"],
+                         "error": error if task["state"] == "failed" else None})
         return runs
 
     def get_glue_job_runs(limit=5):
@@ -263,7 +305,62 @@ def _impls(world: World) -> dict:
                 f"seismic: {count('raw_seismic')} raw -> {count('curated_seismic')} curated")
         return f"summary:\n{line}\n---\n{line}"
 
+    # ---- Actions: they CHANGE the world, the same rules as the real server ----
+    def _refuse(action: dict) -> str | None:
+        reason = rem.check_action(action, world.now.date())
+        return json.dumps({"ok": False, "detail": f"Refused: {reason}"}) if reason else None
+
+    def clear_task(run_id, task_id, thread_id):
+        action = {"action": "clear_task", "run_id": run_id, "task_id": task_id}
+        if refused := _refuse(action):
+            return refused
+        if run_id not in world.task_instances:
+            return json.dumps({"ok": False, "detail": f"Airflow answered 404: DagRun {run_id} not found"})
+        world.actions.append(action)
+        world.rerun(run_id, task_id, rem.target_date_of(run_id))
+        cleared = [t for t in TASKS if TASKS.index(t) >= TASKS.index(task_id)]
+        return json.dumps({"ok": True, "detail": f"Cleared {', '.join(cleared)} in {run_id}; "
+                                                 "Airflow will run them again.", "run_id": run_id})
+
+    def trigger_backfill(date, thread_id):
+        action = {"action": "backfill_date", "date": date}
+        if refused := _refuse(action):
+            return refused
+        world.actions.append(action)
+        run_id = f"manual__copilot_backfill_{date}_{world.now:%Y%m%dT%H%M%S}"
+        world.dag_runs.insert(0, {"dag_run_id": run_id, "state": "queued", "conf": {"date": date},
+                                  "queued_at": world.now.isoformat(), "start_date": None, "end_date": None})
+        world.task_instances[run_id] = [{"task_id": t, "state": None, "try_number": 0, "duration": None}
+                                        for t in TASKS]
+        world.rerun(run_id, TASKS[0], date)
+        return json.dumps({"ok": True, "detail": f"Triggered {run_id} to re-curate {date}.", "run_id": run_id})
+
+    def restart_container(container, thread_id):
+        action = {"action": "restart_container", "container": container}
+        if refused := _refuse(action):
+            return refused
+        world.actions.append(action)
+        old = world.containers.get(container, {})
+        world.containers[container] = {"state": "running", "status": "Up 1 minute", "exit_code": 0,
+                                       "oom_killed": False, "restarts": old.get("restarts", 0) + 1}
+        for feed in CONTAINER_FEEDS.get(container, ()):
+            world.lake_lag_minutes.pop(feed, None)
+            if feed == "weather":
+                world.station_lag_minutes.clear()
+        return json.dumps({"ok": True, "detail": f"Restarted container {container}."})
+
+    def get_dag_run_status(run_id):
+        run = next((r for r in world.dag_runs if r["dag_run_id"] == run_id), None)
+        if run is None:
+            return json.dumps({"ok": False, "detail": f"Airflow answered 404: DagRun {run_id} not found"})
+        return json.dumps({"ok": True, "run_id": run_id, "state": run["state"],
+                           "target_date": rem.target_date_of(run_id, run.get("conf")),
+                           "tasks": [{"task_id": t["task_id"], "state": t["state"], "try_number": t["try_number"]}
+                                     for t in world.task_instances[run_id]]})
+
     return {f.__name__: f for f in [
+        clear_task, trigger_backfill, restart_container, get_dag_run_status,
+        get_host_resources, get_resource_history,
         list_dags, get_recent_dag_runs, get_task_instances, get_task_log,
         list_tables, get_table_schema, get_table_versions, get_registered_partitions, run_query,
         search_runbooks, search_past_incidents, record_incident, get_current_time,
@@ -275,7 +372,7 @@ def _impls(world: World) -> dict:
 async def make_fake_tools(world: World) -> list[BaseTool]:
     impls = _impls(world)
     # The real tools' names, descriptions and argument schemas, read from the servers
-    real = [t for server in (airflow_server, athena_server, knowledge_server, ops_server)
+    real = [t for server in (airflow_server, athena_server, knowledge_server, ops_server, actions_server)
             for t in await server.mcp.list_tools()]
     missing = {t.name for t in real} - impls.keys()
     if missing:

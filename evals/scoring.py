@@ -3,6 +3,7 @@
 Pure code, no LLM judge: the same diagnosis always gets the same score.
 """
 from evals.scenario import Scenario
+from pipeline_copilot.remediation import describe
 
 # $ per 1M tokens: (input, output, cached input read, cache write), standard tier.
 # Claude cache writes cost 1.25x input; OpenAI has no write surcharge.
@@ -28,6 +29,39 @@ def _cost(u: dict, price: tuple) -> float:
     return (uncached * p_in + read * p_read + write * p_write + u["output_tokens"] * p_out) / 1e6
 
 
+def _meets(action: dict, matcher: dict) -> bool:
+    return all(action.get(k) == v for k, v in matcher.items())
+
+
+def plan_matches(actions: list[dict], options: list[list[dict]]) -> bool:
+    """Did the proposed actions match one of the acceptable fix plans?"""
+    for option in options:
+        if (all(any(_meets(a, m) for a in actions) for m in option)
+                and all(any(_meets(a, m) for m in option) for a in actions)):
+            return True
+    return False
+
+
+def score_fix(s: Scenario, final_state: dict) -> dict:
+    """Fix quality: the right plan (or rightly none), and did it work once approved?"""
+    plan = final_state.get("plan") or {"actions": []}
+    remediation = final_state.get("remediation") or {}
+    out = {
+        "expects_fix": s.expects_fix,
+        "fix_ok": plan_matches(plan["actions"], s.fix_options),
+        "proposed": [describe(a) for a in plan["actions"]],
+        "outcome": remediation.get("outcome"),
+    }
+    # Proposing nothing is right when "no action" is an acceptable plan. Otherwise the
+    # executed fix must end the way an honest check would report it (usually "resolved";
+    # "partially_resolved" when the root cause outlives the fix).
+    if not plan["actions"]:
+        out["resolved"] = [] in s.fix_options
+    else:
+        out["resolved"] = out["outcome"] == s.expected_outcome
+    return out
+
+
 def score(s: Scenario, final_state: dict, model: str) -> dict:
     messages = final_state["messages"]
     tools_used = [c["name"] for m in messages for c in (getattr(m, "tool_calls", None) or [])]
@@ -50,9 +84,10 @@ def score(s: Scenario, final_state: dict, model: str) -> dict:
         if s.expected_category == "no_problem_found":
             # Healthy system, answered without raising an incident: that's the right outcome
             return {**base, "correct": True, "grounded": True, "confidently_wrong": False,
-                    "category_got": "(no incident)", "confidence": "-"}
+                    "category_got": "(no incident)", "confidence": "-", **score_fix(s, final_state)}
         # Routed as a plain question (or refused): a real failure a user would hit
-        return {**base, "correct": False, "failure": "no diagnosis: not routed as an incident"}
+        return {**base, "correct": False, "failure": "no diagnosis: not routed as an incident",
+                "expects_fix": s.expects_fix, "fix_ok": not s.expects_fix, "resolved": not s.expects_fix}
 
     text = f"{d['summary']} {d['root_cause']}".lower()
     checks = {
@@ -63,7 +98,7 @@ def score(s: Scenario, final_state: dict, model: str) -> dict:
     }
     correct = checks["category_ok"] and checks["mentions_ok"] and checks["no_red_herring"]
     return {
-        **base, **checks,
+        **base, **checks, **score_fix(s, final_state),
         "correct": correct,
         "category_got": d["category"],
         "confidence": d["confidence"],

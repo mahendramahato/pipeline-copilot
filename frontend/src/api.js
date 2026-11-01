@@ -34,11 +34,11 @@ export const getThread = (id) => getJson(`/api/threads/${encodeURIComponent(id)}
 
 // POST /api/chat answers with Server-Sent Events: "data: {json}\n\n" per step.
 // EventSource only supports GET, so we read the response stream ourselves.
-export async function streamChat({ message, threadId, onEvent }) {
-  const res = await fetch('/api/chat', {
+async function streamPost(url, body, onEvent) {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, thread_id: threadId ?? null }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await errorText(res))
 
@@ -60,3 +60,10 @@ export async function streamChat({ message, threadId, onEvent }) {
     }
   }
 }
+
+export const streamChat = ({ message, threadId, onEvent }) =>
+  streamPost('/api/chat', { message, thread_id: threadId ?? null }, onEvent)
+
+// Approve or reject the fix a conversation is waiting on; streams execution + validation
+export const streamDecision = ({ threadId, approved, onEvent }) =>
+  streamPost(`/api/threads/${encodeURIComponent(threadId)}/decision`, { approved }, onEvent)

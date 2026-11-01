@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from pipeline_copilot import remediation as rem
+from pipeline_copilot import resources
 from pipeline_copilot.graph import _as_text
 from pipeline_copilot.runtime import Agent, new_thread_id, run_turn
 
@@ -58,6 +60,15 @@ async def collect_checks(agent: Agent) -> list[dict]:
         checks += json.loads(await _tool(agent, "run_health_checks", {}))
     except Exception as e:   # noqa: BLE001 - a broken check source is itself a failing check
         checks.append({"check": "ops health checks ran", "ok": False, "detail": f"{type(e).__name__}: {e}"})
+
+    # One resource snapshot per pass: the history the agent reads after a crash
+    path = resources.history_path()
+    if path is not None:
+        try:
+            snap = json.loads(await _tool(agent, "get_host_resources", {"as_json": True}))
+            resources.append_history(snap, path)
+        except Exception as e:  # noqa: BLE001 - history is best-effort, never blocks the checks
+            log.warning("resource snapshot not recorded: %s", e)
 
     try:
         out = await _tool(agent, "get_recent_dag_runs", {"dag_id": DAG_ID, "limit": 1})
@@ -133,15 +144,24 @@ async def run_once(agent: Agent, state: MonitorState) -> None:
         thread_id = new_thread_id()
         question = ("Automated health check found these failing checks:\n" + issues +
                     "\nInvestigate the root cause and the impact.")
-        diagnosis = None
+        diagnosis, plan, awaiting = None, None, None
         async for event in run_turn(agent, thread_id, question):
             if event["type"] == "diagnosis":
                 diagnosis = event["diagnosis"]
+            elif event["type"] == "plan":
+                plan = event["plan"]
+            elif event["type"] == "approval_required":
+                awaiting = event["request"]
+        # The monitor never approves its own fixes: a person must (live mode or CLI)
         state.last_investigation = {"thread_id": thread_id, "at": state.checked_at, "issues": list(failing),
-                                    "diagnosis": diagnosis}
+                                    "diagnosis": diagnosis, "plan": plan, "awaiting_approval": bool(awaiting)}
         if diagnosis and diagnosis.get("category") != "no_problem_found":
             message += (f"\n\nRoot cause: {diagnosis['root_cause']}\nImpact: {diagnosis['impact']}"
                         f"\nSuggested fix: {diagnosis['suggested_fix']}")
+        if plan and plan["actions"]:
+            steps = "\n".join(f"- {rem.describe(a)}" for a in plan["actions"])
+            message += (f"\n\n🛠 Fix ready, waiting for your approval:\n{steps}" if awaiting
+                        else f"\n\nFix steps (apply by hand):\n{steps}")
         public = os.environ.get("PUBLIC_URL")
         message += f"\n\nFull investigation: {public or 'live mode'} (conversation {thread_id})"
     else:

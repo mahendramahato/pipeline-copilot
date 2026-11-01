@@ -35,6 +35,12 @@ class AgentSettings:
     llm_model: str
     guardrail_model: str
     memory_db: Path
+    # Remediation: off unless ACTIONS_ENABLED=true. When off, fixes are still
+    # proposed (and shown), but never offered for one-click execution.
+    actions_enabled: bool = False
+    validation_poll_seconds: float = 15       # how often to re-check a run after a fix
+    validation_timeout_seconds: float = 900   # give up waiting after this long
+    container_settle_seconds: float = 90      # after a restart, wait before re-checking
 
 
 def load_agent_settings() -> AgentSettings:
@@ -50,7 +56,15 @@ def load_agent_settings() -> AgentSettings:
         guardrail_model=guardrail_model,
         # Conversation checkpoints. Relative to the project root, like .chroma/
         memory_db=PROJECT_ROOT / os.environ.get("MEMORY_DB", "memory.sqlite"),
+        actions_enabled=actions_enabled(),
+        validation_poll_seconds=float(os.environ.get("VALIDATION_POLL_SECONDS", "15")),
+        validation_timeout_seconds=float(os.environ.get("VALIDATION_TIMEOUT_SECONDS", "900")),
+        container_settle_seconds=float(os.environ.get("CONTAINER_SETTLE_SECONDS", "90")),
     )
+
+
+def actions_enabled() -> bool:
+    return os.environ.get("ACTIONS_ENABLED", "").strip().lower() in ("1", "true", "yes")
 
 
 # --- Airflow settings: only the Airflow MCP server loads these ---
@@ -67,6 +81,17 @@ def load_airflow_settings() -> AirflowSettings:
         base_url=_require("AIRFLOW_BASE_URL").rstrip("/"),
         username=_require("AIRFLOW_USERNAME"),
         password=_require("AIRFLOW_PASSWORD"),
+    )
+
+
+# --- Airflow ACTIONS settings: only the actions MCP server loads these ---
+# A different Airflow user from the read-only one: its role may clear tasks and
+# trigger runs of daily_lake_maintenance, nothing else.
+def load_airflow_actions_settings() -> AirflowSettings:
+    return AirflowSettings(
+        base_url=_require("AIRFLOW_BASE_URL").rstrip("/"),
+        username=_require("AIRFLOW_ACTIONS_USERNAME"),
+        password=_require("AIRFLOW_ACTIONS_PASSWORD"),
     )
 
 

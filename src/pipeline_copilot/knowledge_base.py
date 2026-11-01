@@ -111,10 +111,11 @@ def record_incident(diagnosis: dict, question: str, thread_id: str, settings: Kn
     existing = collection.get(ids=[incident_id])
     if existing["ids"]:
         meta = existing["metadatas"][0]
-        collection.update(
-            ids=[incident_id],
-            metadatas=[{**meta, "times_seen": meta.get("times_seen", 1) + 1, "last_thread_id": thread_id}],
-        )
+        update = {**meta, "times_seen": meta.get("times_seen", 1) + 1, "last_thread_id": thread_id}
+        # A fix that was actually applied is worth keeping over "no automated fix"
+        if diagnosis.get("outcome", "").startswith("fix applied"):
+            update["outcome"] = diagnosis["outcome"]
+        collection.update(ids=[incident_id], metadatas=[update])
         return f"{incident_id} (already recorded; seen {meta.get('times_seen', 1) + 1} times)"
 
     collection.add(
@@ -129,6 +130,7 @@ def record_incident(diagnosis: dict, question: str, thread_id: str, settings: Kn
             "thread_id": thread_id,
             "question": question,
             "fix": diagnosis["suggested_fix"],
+            "outcome": diagnosis.get("outcome", "unknown"),
             "runbooks": ", ".join(diagnosis["runbooks_used"]),
             "times_seen": 1,
         }],
