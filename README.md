@@ -85,9 +85,9 @@ The terminal chat asks the same question with `Apply this fix? [y/N]`. Problems 
 
 ## Architecture
 
-![Architecture: React frontend, the LangGraph agent, its MCP servers and the RAG knowledge base](docs/architecture.svg)
+![Architecture: React frontend, the LangGraph agent (investigate ① – ⑤, fix with approval ⑥ – 10), five MCP servers and the RAG knowledge base](docs/architecture.svg)
 
-<sub>The diagram shows the investigation half; the full agent graph, including the fix path and the actions server, is below.</sub>
+<sub>Red lines are the only write path: Execute → Actions MCP → a dedicated Airflow user and a restart-only Docker proxy, and only after you approve. The same graph as a flowchart:</sub>
 
 ```mermaid
 flowchart LR
@@ -112,8 +112,8 @@ flowchart LR
 
 **The frontend** is a React web UI: you ask there, and every step streams back live.
 **The agent** is a LangGraph state graph: a cheap guardrail first, then an investigation loop,
-then (for incidents only) a typed diagnosis whose evidence is checked by code before it is
-shown or remembered. **MCP servers** are the only way out to Airflow, Athena and the runbooks,
+then a typed diagnosis whose evidence is checked by code, then (when a safe fix exists) a pause for
+your approval, execution and verification, before anything is remembered. **MCP servers** are the only way out to Airflow, Athena and the runbooks,
 and the four investigation servers run with read-only credentials (a fifth, `actions`, is reachable only by the graph after a human approves a fix). **The knowledge base** is the RAG half: the team's runbooks
 are split by section and embedded into Chroma offline (whenever the docs change), and the
 agent searches them during an investigation. The same store keeps verified past incidents.
