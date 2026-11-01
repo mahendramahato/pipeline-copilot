@@ -558,27 +558,11 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .monitor-fail { font-size: 12px; color: #fca5a5; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* 3D robot: the app icon everywhere; the big one above the title rotates */
-.robot3d {
-  position: relative; margin: 0 auto -6px; perspective: 600px;
-  cursor: grab; touch-action: none; user-select: none; outline: none;
-}
+.robot-gl { position: relative; margin: 0 auto -10px; flex-shrink: 0; cursor: grab; touch-action: none; user-select: none; }
+.robot-gl:active { cursor: grabbing; }
 .robot3d-flat { display: block; flex-shrink: 0; overflow: visible; }
 .robot3d-flat .rs-eyes { animation: r3-blink 5s steps(1) infinite; transform-origin: 59px 57px; }
-.robot3d.dragging { cursor: grabbing; }
-.robot3d:focus-visible { outline: 2px solid #a78bfa; outline-offset: 6px; border-radius: 16px; }
-.robot3d .r3-shadow, .robot3d .r3-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.robot3d .r3-float, .robot3d .r3-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
-.robot3d .r3-float { animation: r3-float 3.6s ease-in-out infinite; }
-.robot3d .r3-layer { backface-visibility: hidden; }
-.robot3d .r3-layer.solid { backface-visibility: visible; }
-.robot3d .r3-shadow { animation: r3-shadow 3.6s ease-in-out infinite; transform-origin: 50% 93%; }
-.robot3d .r3-eyes { animation: r3-blink 5s steps(1) infinite; transform-origin: 59px 57px; }
-.robot3d.dragging .r3-float, .robot3d.dragging .r3-shadow { animation-play-state: paused; }
-@keyframes r3-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-@keyframes r3-shadow { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.82); opacity: .7; } }
 @keyframes r3-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
 @media (prefers-reduced-motion: reduce) {
-  .robot3d .r3-float, .robot3d .r3-shadow, .robot3d .r3-eyes, .robot3d-flat .rs-eyes { animation: none; }
+  .robot3d-flat .rs-eyes { animation: none; }
 }
-.robot3d .r3-ball { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-style: preserve-3d; }
-.robot3d .r3-ball svg { position: absolute; display: block; overflow: visible; }

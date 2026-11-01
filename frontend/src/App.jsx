@@ -319,7 +319,7 @@ export default function App() {
         <div className="conversation">
           {view.kind === 'home' && (
             <div className="empty landing">
-              <Robot3D size={120} rotatable />
+              <Robot3D size={170} rotatable />
               <h1>An AI on-call assistant for data pipelines</h1>
               <p>
                 It investigates the way an on-call engineer would: reading Airflow runs and logs,
@@ -349,11 +349,12 @@ export default function App() {
 
           {view.kind === 'chat' && turns.length === 0 && (
             <div className="empty">
-              <Robot3D size={120} rotatable />
+              <Robot3D size={170} rotatable />
               <h1>What looks wrong in your pipeline?</h1>
               <p>
                 Ask about DAG runs, task logs, tables or data quality. Pipeline Copilot investigates with
-                read-only tools, checks the runbooks, and verifies every piece of evidence it cites.
+                read-only tools, verifies every piece of evidence it cites, and proposes fixes that run
+                only after you approve them.
               </p>
               <div className="examples">
                 {EXAMPLES.map(({ tag, q }) => (

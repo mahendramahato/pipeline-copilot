@@ -22,6 +22,11 @@ Live: pipeline-copilot.duckdns.org (Oracle VM, docker compose, behind the pipeli
 - `cli.py`: terminal chat, prompts `Apply this fix? [y/N]`.
 - `monitor.py`: 30-min deterministic checks → AI investigation → alert (never self-approves).
 - `frontend/src/`: `Turn.jsx`, `DiagnosisCard.jsx`, `FixCard.jsx` (approve/reject, outcome).
+  `Robot3D.jsx`: flat SVG at icon sizes; the big empty-state robot lazy-loads `CopilotModel.jsx`
+  (R3F + drei: GLB, idle animation, drag to rotate, contact shadow).
+- Robot model: `frontend/public/models/copilot.glb`, exported from Blender
+  (`~/Documents/PipelineCopilot3D/pipeline_copilot_robot.blend` on the Mac; root `Copilot`,
+  4 s idle loop: float, sway, blink). Re-export: select `Copilot` + children, GLB, apply modifiers.
 - `evals/`: simulated World + fake tools (incl. actions, resources) + 12 scenarios; `run.py` auto-approves.
 - `tests/test_remediation.py`: fix loop end to end with a scripted fake model (no LLM).
 

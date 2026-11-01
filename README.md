@@ -6,6 +6,8 @@
 
 Then it **fixes it, with a human in the loop**: it proposes a typed fix (re-run a task, backfill a day, restart a container), pauses for your approval, runs exactly what you approved, and **checks that it worked** (the run succeeded, the data is back, health checks are green).
 
+<img src="docs/copilot-3d.png" alt="The Pipeline Copilot robot, modelled in Blender" width="220" align="right">
+
 Built with **LangGraph** (agent loop), **MCP** (five tool servers), **RAG** (runbooks in Chroma), **layered guardrails** and **persistent memory**, on Claude Opus 5.5 with a Claude Haiku 4.5 input guardrail.
 
 It runs against my own [weather-seismic-pipeline](https://github.com/mahendramahato/weather-seismic-pipeline) (NOAA + USGS → Kafka → Spark → S3 → Glue → Athena, orchestrated by Airflow), but nothing in the design is specific to it.
@@ -138,7 +140,7 @@ Caveats: a single run per scenario, scenarios written by the agent's author, and
 | Tools | MCP Python SDK (FastMCP), `langchain-mcp-adapters`, stdio transport |
 | Data access | Airflow 3 REST API (`httpx`), Athena + Glue (`boto3`), `sqlglot` |
 | RAG + memory | Chroma (local embeddings), LangGraph SQLite checkpointer |
-| Interfaces | Terminal chat; FastAPI with Server-Sent Events + React (Vite) |
+| Interfaces | Terminal chat; FastAPI with Server-Sent Events + React (Vite); robot mascot modelled in Blender, rendered with React Three Fiber |
 | Testing | pytest (109 tests, incl. the full approve → execute → verify loop with a scripted model), a simulated eval suite with DuckDB, LangSmith tracing |
 | Tooling | Python 3.12, `uv` |
 
@@ -159,7 +161,8 @@ src/pipeline_copilot/
   runtime.py                 starts MCP servers + memory; one question → stream of events
   cli.py                     terminal chat
   api.py                     FastAPI: SSE chat stream, saved conversations, serves the UI
-frontend/                    React (Vite) UI: live tool steps, diagnosis card with ✓/✗ evidence
+frontend/                    React (Vite) UI: live tool steps, diagnosis card with ✓/✗ evidence,
+                             fix card (approve/reject), the 3D robot (Blender GLB in React Three Fiber)
 knowledge/                   pipeline overview + runbooks (the RAG source)
 evals/                       simulated world, fake tools, scenarios, runner
 tests/                       SQL guard, retrieval, grounding tests
